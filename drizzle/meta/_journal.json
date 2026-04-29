@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1776215693843,
+      "tag": "0000_famous_slipstream",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1776215872827,
+      "tag": "0001_smooth_sheva_callister",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1776265351517,
+      "tag": "0002_tense_sentinel",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1776267429836,
+      "tag": "0003_real_dragon_man",
+      "breakpoints": true
+    }
+  ]
+}
