@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createProductRecord, deleteProductRecord, listProductRecords, updateProductRecord } from "./db";
 import {
+  bulkImportLiveListings,
   createLiveListing,
   deleteLiveListing,
   listLiveListings,
@@ -103,6 +104,15 @@ export const appRouter = router({
       .input(z.object({ id: z.string().min(1, "缺少记录 ID") }))
       .mutation(async ({ input }) => {
         return deleteLiveListing(input.id);
+      }),
+    bulkImport: protectedProcedure
+      .input(
+        z.object({
+          rows: z.array(liveListingInputSchema).max(5000),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        return bulkImportLiveListings(input.rows);
       }),
   }),
 });

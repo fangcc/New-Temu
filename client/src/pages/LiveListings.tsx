@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { ExternalLink, LayoutList, Loader2, Pencil, Plus, Search, Store, Trash2, Weight } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import * as XLSX from "xlsx";
+import { ExternalLink, FileSpreadsheet, LayoutList, Loader2, Pencil, Plus, Search, Store, Trash2, Weight } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "wouter";
+import { findLiveListingHeaderRowIndex, parseLiveListingImportMatrix } from "@shared/liveListingImportParse";
 import { computeLiveListingMetrics } from "@shared/liveListingMath";
 import { trpc } from "@/lib/trpc";
 
@@ -69,8 +71,30 @@ function parsePercent(s: string) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function parseWorkbookToImportRows(buf: ArrayBuffer): {
+  sheetName: string;
+  rows: ReturnType<typeof parseLiveListingImportMatrix>["rows"];
+  skippedEmpty: number;
+  duplicateCountInFile: number;
+} {
+  const wb = XLSX.read(buf, { type: "array" });
+  for (const sheetName of wb.SheetNames) {
+    const sheet = wb.Sheets[sheetName];
+    if (!sheet) {
+      continue;
+    }
+    const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" }) as unknown[][];
+    if (findLiveListingHeaderRowIndex(matrix) >= 0) {
+      const parsed = parseLiveListingImportMatrix(matrix);
+      return { sheetName, ...parsed };
+    }
+  }
+  throw new Error("未识别到核价表：请确认工作表中有「产品名称」与「SPU ID」表头行（如美区TEMU核价表模板）");
+}
+
 export default function LiveListings() {
   const utils = trpc.useUtils();
+  const excelInputRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState<LiveForm>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [keyword, setKeyword] = useState("");
@@ -102,6 +126,28 @@ export default function LiveListings() {
       toast.success("已删除");
     },
     onError: (e) => toast.error(e.message || "删除失败"),
+  });
+
+  const bulkImportMutation = trpc.liveListings.bulkImport.useMutation({
+    onSuccess: async (result) => {
+      await utils.liveListings.list.invalidate();
+      const parts = [
+        `新增 ${result.created} 条`,
+        `更新 ${result.updated} 条`,
+        result.failed ? `失败 ${result.failed} 条` : null,
+      ].filter(Boolean);
+      toast.success(`导入完成：${parts.join("，")}`);
+      if (result.errors.length > 0) {
+        toast.error(
+          `部分失败示例：${result.errors
+            .slice(0, 3)
+            .map((e) => `${e.spuId}: ${e.message}`)
+            .join("；")}`,
+          { duration: 8000 },
+        );
+      }
+    },
+    onError: (e) => toast.error(e.message || "导入失败"),
   });
 
   useEffect(() => {
@@ -207,6 +253,40 @@ export default function LiveListings() {
   };
 
   const busy = createMutation.isPending || updateMutation.isPending;
+  const importBusy = bulkImportMutation.isPending;
+
+  const handleExcelSelected = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) {
+      return;
+    }
+    const lower = file.name.toLowerCase();
+    if (!lower.endsWith(".xlsx") && !lower.endsWith(".xls")) {
+      toast.error("请上传 .xlsx 或 .xls 文件");
+      return;
+    }
+    try {
+      const buf = await file.arrayBuffer();
+      const { sheetName, rows, skippedEmpty, duplicateCountInFile } = parseWorkbookToImportRows(buf);
+      if (rows.length === 0) {
+        toast.error("未解析到有效数据行（需要 SPU + 产品名称）");
+        return;
+      }
+      const ok = window.confirm(
+        `将从工作表「${sheetName}」导入 ${rows.length} 条（按 SPU 去重）。\n` +
+          `已跳过约 ${skippedEmpty} 个空行；表内重复 SPU 已合并 ${duplicateCountInFile} 次。\n` +
+          `若 SPU 已存在将更新为表格中的最新数据。是否继续？`,
+      );
+      if (!ok) {
+        return;
+      }
+      await bulkImportMutation.mutateAsync({ rows });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "解析失败";
+      toast.error(message);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#f5f1ea_0%,#f7f4ef_24%,#efebe5_100%)] text-slate-800">
@@ -217,7 +297,8 @@ export default function LiveListings() {
             <h1 className="mt-2 font-serif text-3xl text-slate-900">在售产品（SPU）</h1>
             <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-600">
               以 SPU 为唯一键，记录核价通过后的成本与「运费补贴售价」。总成本、毛利、利润率与表格一致：毛利 ÷
-              补贴售价。可不关联上新记录，便于录入店铺已有商品。
+              补贴售价。可不关联上新记录，便于录入店铺已有商品。支持上传与「美区TEMU核价表」相同表头的 Excel，批量新增或按 SPU
+              覆盖更新。
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -361,6 +442,25 @@ export default function LiveListings() {
               <p className="text-sm text-slate-500">
                 共 <span className="font-semibold text-slate-800">{filtered.length}</span> 条
               </p>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs uppercase tracking-[0.2em] text-slate-500">Excel 导入</label>
+                <input
+                  ref={excelInputRef}
+                  type="file"
+                  accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                  className="hidden"
+                  onChange={(e) => void handleExcelSelected(e)}
+                />
+                <button
+                  type="button"
+                  disabled={importBusy}
+                  onClick={() => excelInputRef.current?.click()}
+                  className={secondaryButtonClass}
+                >
+                  {importBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
+                  上传核价表
+                </button>
+              </div>
             </div>
 
             <div className="overflow-x-auto rounded-[1.5rem] border border-black/6 bg-white shadow-[0_18px_50px_rgba(38,30,24,0.06)]">

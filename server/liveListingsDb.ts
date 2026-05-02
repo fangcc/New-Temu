@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { and, desc, eq, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import { computeLiveListingMetrics } from "../shared/liveListingMath";
 import { liveProductListings, type InsertLiveProductListingRow } from "../drizzle/schema";
 import { getDb } from "./db";
@@ -178,4 +178,62 @@ export async function deleteLiveListing(id: string) {
 
   await db.delete(liveProductListings).where(eq(liveProductListings.id, id));
   return { success: true } as const;
+}
+
+export async function bulkImportLiveListings(rows: LiveListingInput[]): Promise<{
+  created: number;
+  updated: number;
+  failed: number;
+  errors: Array<{ spuId: string; message: string }>;
+}> {
+  const db = await getDb();
+  if (!db) {
+    throw new Error("数据库当前不可用，请稍后再试");
+  }
+
+  const lastBySpu = new Map<string, LiveListingInput>();
+  for (const r of rows) {
+    const spuId = toRowString(r.spuId);
+    const productName = toRowString(r.productName);
+    if (!spuId || !productName) {
+      continue;
+    }
+    lastBySpu.set(spuId, { ...r, spuId, productName });
+  }
+
+  const list = Array.from(lastBySpu.values());
+  if (list.length === 0) {
+    return { created: 0, updated: 0, failed: 0, errors: [] };
+  }
+
+  const spuIds = list.map((r) => r.spuId);
+  const existingRows = await db.select().from(liveProductListings).where(inArray(liveProductListings.spuId, spuIds));
+  const idBySpu = new Map(existingRows.map((row) => [row.spuId, row.id]));
+
+  let created = 0;
+  let updated = 0;
+  const errors: Array<{ spuId: string; message: string }> = [];
+
+  for (const input of list) {
+    try {
+      const existingId = idBySpu.get(input.spuId);
+      if (existingId) {
+        await updateLiveListing(existingId, input);
+        updated += 1;
+      } else {
+        await createLiveListing(input);
+        created += 1;
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      errors.push({ spuId: input.spuId, message });
+    }
+  }
+
+  return {
+    created,
+    updated,
+    failed: errors.length,
+    errors: errors.slice(0, 80),
+  };
 }
