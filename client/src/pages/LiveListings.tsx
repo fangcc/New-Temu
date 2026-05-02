@@ -3,7 +3,7 @@ import * as XLSX from "xlsx";
 import { Download, ExternalLink, FileSpreadsheet, LayoutList, Loader2, Pencil, Plus, Search, Store, Trash2, Weight } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "wouter";
-import { inverseDeclaredPriceForTargetMargin, simulateActivityPricing } from "@shared/liveListingActivitySim";
+import { inverseActivityDeclaredForTargetMargin, simulateActivityPricing } from "@shared/liveListingActivitySim";
 import { findLiveListingHeaderRowIndex, parseLiveListingImportMatrix } from "@shared/liveListingImportParse";
 import { computeLiveListingMetrics } from "@shared/liveListingMath";
 import {
@@ -134,7 +134,7 @@ export default function LiveListings() {
   const [actFee, setActFee] = useState("21");
   /** 仅保留「活动后」利润率 ≥ 该值（%），留空不过滤 */
   const [actMinMarginAfter, setActMinMarginAfter] = useState("");
-  /** 反推：达到该目标利润率（%）所需的申报核价，留空不显示列 */
+  /** 反推：达到该目标活动后利润率（%）所需的「活动申报」折后价，留空不显示列 */
   const [actInverseMargin, setActInverseMargin] = useState("");
 
   const listQuery = trpc.liveListings.list.useQuery(undefined, { staleTime: 10_000 });
@@ -226,7 +226,7 @@ export default function LiveListings() {
       fOk,
       useSimFilter: minAfter !== null && Number.isFinite(minAfter) && rOk && fOk,
       minAfter: minAfter ?? 0,
-      showInverseCol: inv !== null && Number.isFinite(inv) && inv > 0 && inv < 100 && rOk && fOk,
+      showInverseCol: inv !== null && Number.isFinite(inv) && inv > 0 && inv < 100 && fOk,
       inversePct: inv ?? 0,
     };
   }, [actDiscount, actFee, actMinMarginAfter, actInverseMargin]);
@@ -574,8 +574,7 @@ export default function LiveListings() {
               <p className="mt-1 leading-6 text-slate-600">
                 规则：活动后申报核价 = 申报核价 × 折扣系数；活动后补贴售价 = 活动后申报核价 + 加价；活动后毛利 = 活动后补贴售价 −
                 总成本；活动后利润率 = 活动后毛利 ÷ 活动后补贴售价。用于判断能否报名某类折扣（可自行改折扣与加价，如尾程按 21 / 28
-                等）。填写「反推目标利润率」后，表格会给出在该活动规则下、要达到该利润率时**申报核价应为多少（元）**（按每条 SKU
-                的总成本单独计算）。
+                等）。填写「反推目标利润率」后，表格会给出要达到该**活动后**利润率时，**活动申报（折后申报核价）应为多少（元）**；与折扣系数无关，仅由总成本、加价与目标利润率决定（按每条 SKU 单独计算）。
               </p>
               <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <Field label="折扣系数（申报核价×）" required>
@@ -604,7 +603,7 @@ export default function LiveListings() {
                     inputMode="decimal"
                     value={actInverseMargin}
                     onChange={(e) => setActInverseMargin(e.target.value)}
-                    placeholder="如 10，表格列显示对应申报核价(元)"
+                    placeholder="如 10，列示活动申报(元)"
                     className={inputClass}
                   />
                 </Field>
@@ -639,7 +638,7 @@ export default function LiveListings() {
                     <th className="px-3 py-3">活动毛利</th>
                     <th className="px-3 py-3">活动利润率</th>
                     {activityParams.showInverseCol ? (
-                      <th className="px-3 py-3">申报核价(元·目标{activityParams.inversePct}%)</th>
+                      <th className="px-3 py-3">活动申报(元·目标{activityParams.inversePct}%)</th>
                     ) : null}
                     <th className="px-3 py-3">1688</th>
                     <th className="px-3 py-3 text-right">操作</th>
@@ -673,10 +672,9 @@ export default function LiveListings() {
                         discountMultiplier: activityParams.discount,
                         subsidyAddon: activityParams.fee,
                       });
-                      const needDeclared = activityParams.showInverseCol
-                        ? inverseDeclaredPriceForTargetMargin({
+                      const needActivityDeclared = activityParams.showInverseCol
+                        ? inverseActivityDeclaredForTargetMargin({
                             totalCost: row.totalCost,
-                            discountMultiplier: activityParams.discount,
                             subsidyAddon: activityParams.fee,
                             targetMarginPercent: activityParams.inversePct,
                           })
@@ -707,7 +705,7 @@ export default function LiveListings() {
                           </td>
                           {activityParams.showInverseCol ? (
                             <td className="whitespace-nowrap px-3 py-3 text-slate-800">
-                              {needDeclared === null ? "—" : currency(needDeclared)}
+                              {needActivityDeclared === null ? "—" : currency(needActivityDeclared)}
                             </td>
                           ) : null}
                           <td className="px-3 py-3">

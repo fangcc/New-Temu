@@ -54,21 +54,20 @@ export function simulateActivityPricing(input: {
 }
 
 /**
- * 反推：在固定折扣 r、加价 f、总成本 T 下，要使活动后利润率恰好等于 targetMarginPercent（%），
- * 所需「原始申报核价」D（活动前）：
- * S = T/(1-m)，d1 = S − f，D = d1/r
+ * 反推：在加价 f、总成本 T 下，要使「活动后补贴售价」上的利润率恰好等于 targetMarginPercent（%），
+ * 所需「活动后申报核价」d1（与列「活动申报」同一口径；折扣 r 只影响如何从表内申报核价得到 d1，不进入该式）。
+ *
+ * S = T/(1−m)，d1 = S − f，其中 S = d1 + f 为活动后补贴售价。
  */
-export function inverseDeclaredPriceForTargetMargin(input: {
+export function inverseActivityDeclaredForTargetMargin(input: {
   totalCost: string;
-  discountMultiplier: number;
   subsidyAddon: number;
   targetMarginPercent: number;
 }): number | null {
   const T = toNumber(input.totalCost);
-  const r = input.discountMultiplier;
   const f = input.subsidyAddon;
   const m = input.targetMarginPercent / 100;
-  if (!(r > 0 && r <= 1) || !Number.isFinite(T) || !(m > 0 && m < 1)) {
+  if (!Number.isFinite(f) || f < 0 || !Number.isFinite(T) || !(m > 0 && m < 1)) {
     return null;
   }
   const denom = 1 - m;
@@ -83,9 +82,5 @@ export function inverseDeclaredPriceForTargetMargin(input: {
   if (!Number.isFinite(d1) || d1 <= 0) {
     return null;
   }
-  const D = d1 / r;
-  if (!Number.isFinite(D) || D <= 0) {
-    return null;
-  }
-  return roundToTwo(D);
+  return roundToTwo(d1);
 }
