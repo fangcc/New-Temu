@@ -348,17 +348,38 @@ export default function LiveListings() {
   const busy = createMutation.isPending || updateMutation.isPending;
   const importBusy = bulkImportMutation.isPending;
 
-  const handleExportFilteredSpuDeclared = () => {
-    const rows = filteredRows.filter((r) => r.spuId.trim() && r.declaredPrice.trim());
-    if (rows.length === 0) {
-      toast.error("当前筛选结果中没有可导出的记录（需同时有 SPU 与申报核价）");
+  const handleExportFilteredSpuActivityDeclared = () => {
+    if (!activityParams.showInverseCol) {
+      toast.error("请先填写「反推：目标利润率（%）」并保证加价有效，再导出活动申报反推价");
       return;
     }
-    const spuLine = rows.map((r) => r.spuId.trim()).join(" ");
-    const declaredLine = rows.map((r) => r.declaredPrice.trim()).join(" ");
+    const pct = activityParams.inversePct;
+    const fee = activityParams.fee;
+    const pairs: { spu: string; activityDeclared: number }[] = [];
+    for (const r of filteredRows) {
+      const spu = r.spuId.trim();
+      if (!spu) {
+        continue;
+      }
+      const inv = inverseActivityDeclaredForTargetMargin({
+        totalCost: r.totalCost,
+        subsidyAddon: fee,
+        targetMarginPercent: pct,
+      });
+      if (inv === null) {
+        continue;
+      }
+      pairs.push({ spu, activityDeclared: inv });
+    }
+    if (pairs.length === 0) {
+      toast.error("当前筛选结果中没有可导出的记录（需有 SPU，且总成本可算出反推活动申报）");
+      return;
+    }
+    const spuLine = pairs.map((p) => p.spu).join(" ");
+    const declaredLine = pairs.map((p) => String(p.activityDeclared)).join(" ");
     const stamp = new Date().toISOString().slice(0, 10);
-    downloadTextFile(`在售筛选-SPU与申报核价-${stamp}.txt`, `${spuLine}\n${declaredLine}\n`);
-    toast.success(`已导出 ${rows.length} 条（TXT 两行：SPU 空格分隔 / 申报核价空格分隔）`);
+    downloadTextFile(`在售筛选-SPU与活动申报目标${pct}pct-${stamp}.txt`, `${spuLine}\n${declaredLine}\n`);
+    toast.success(`已导出 ${pairs.length} 条（第 2 行为活动申报·目标 ${pct}% 反推价，空格分隔）`);
   };
 
   const handleExcelSelected = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -612,12 +633,19 @@ export default function LiveListings() {
                 <p className="mt-2 text-xs text-amber-800">折扣需在 0～1 之间，加价需为数字；当前将按默认 0.6 与 21 参与计算展示。</p>
               )}
               <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-black/10 pt-4">
-                <button type="button" onClick={handleExportFilteredSpuDeclared} className={secondaryButtonClass}>
+                <button
+                  type="button"
+                  onClick={handleExportFilteredSpuActivityDeclared}
+                  disabled={!activityParams.showInverseCol}
+                  title={activityParams.showInverseCol ? undefined : "请先填写「反推：目标利润率（%）」"}
+                  className={secondaryButtonClass + " disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"}
+                >
                   <Download className="h-4 w-4" />
-                  导出当前筛选（SPU + 申报核价）
+                  导出当前筛选（SPU + 活动申报·目标{activityParams.showInverseCol ? `${activityParams.inversePct}%` : "…"}）
                 </button>
                 <span className="text-xs leading-5 text-slate-500">
-                  生成 UTF-8 文本：第 1 行为所有 SPU（空格隔开），第 2 行为对应申报核价（空格隔开，顺序与第 1 行一致）。
+                  生成 UTF-8 文本：第 1 行为 SPU（空格隔开），第 2 行为对应「活动申报」反推价（元·与上方目标利润率一致），顺序与第 1
+                  行一致；需先填写反推目标利润率。
                 </span>
               </div>
             </div>
