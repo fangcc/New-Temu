@@ -21,7 +21,6 @@ import {
   PackagePlus,
   Pencil,
   Search,
-  Sparkles,
   StickyNote,
   Trash2,
   Weight,
@@ -98,12 +97,6 @@ type ProductForm = {
   purchaseUnitPrice: string;
   salePrice: string;
   weight: string;
-  mainSellingPoints: string;
-  coreSellingPoint: string;
-  targetAudience: string;
-  existingEnglishTitle: string;
-  optimizedEnglishTitle: string;
-  optimizedMainImageUrl: string;
   note: string;
   images: string[];
 };
@@ -128,12 +121,6 @@ const initialForm: ProductForm = {
   purchaseUnitPrice: "",
   salePrice: "",
   weight: "",
-  mainSellingPoints: "",
-  coreSellingPoint: "",
-  targetAudience: "",
-  existingEnglishTitle: "",
-  optimizedEnglishTitle: "",
-  optimizedMainImageUrl: "",
   note: "",
   images: [],
 };
@@ -200,18 +187,6 @@ export default function Home() {
     },
   });
 
-  const optimizeTitleMutation = trpc.productRecords.optimizeEnglishTitle.useMutation({
-    onError: (error) => {
-      toast.error(error.message || "英文标题优化失败，请稍后再试");
-    },
-  });
-
-  const optimizeImageMutation = trpc.productRecords.optimizeMainImage.useMutation({
-    onError: (error) => {
-      toast.error(error.message || "主图优化失败，请稍后再试");
-    },
-  });
-
   useEffect(() => {
     if (recordsQuery.error) {
       toast.error(recordsQuery.error.message || "记录加载失败，请稍后刷新重试");
@@ -229,11 +204,6 @@ export default function Home() {
         ? [
             item.productName,
             item.note,
-            item.mainSellingPoints,
-            item.coreSellingPoint,
-            item.targetAudience,
-            item.existingEnglishTitle,
-            item.optimizedEnglishTitle,
             item.sourceCollectionUrl,
             item.supplierUrl,
             item.salePrice,
@@ -383,6 +353,8 @@ export default function Home() {
       return;
     }
 
+    const baseline = editingId ? records.find((item) => item.id === editingId) : undefined;
+
     const payload = {
       productName: form.productName.trim(),
       sourceCollectionUrl: form.sourceCollectionUrl.trim(),
@@ -391,12 +363,12 @@ export default function Home() {
       purchaseUnitPrice: form.purchaseUnitPrice.trim(),
       salePrice: form.salePrice.trim(),
       weight: form.weight.trim(),
-      mainSellingPoints: form.mainSellingPoints.trim(),
-      coreSellingPoint: form.coreSellingPoint.trim(),
-      targetAudience: form.targetAudience.trim(),
-      existingEnglishTitle: form.existingEnglishTitle.trim(),
-      optimizedEnglishTitle: form.optimizedEnglishTitle.trim(),
-      optimizedMainImageUrl: form.optimizedMainImageUrl.trim(),
+      mainSellingPoints: baseline?.mainSellingPoints ?? "",
+      coreSellingPoint: baseline?.coreSellingPoint ?? "",
+      targetAudience: baseline?.targetAudience ?? "",
+      existingEnglishTitle: baseline?.existingEnglishTitle ?? "",
+      optimizedEnglishTitle: baseline?.optimizedEnglishTitle ?? "",
+      optimizedMainImageUrl: baseline?.optimizedMainImageUrl ?? "",
       note: form.note.trim(),
       images: form.images,
     };
@@ -421,12 +393,6 @@ export default function Home() {
       purchaseUnitPrice: record.purchaseUnitPrice,
       salePrice: record.salePrice,
       weight: record.weight,
-      mainSellingPoints: record.mainSellingPoints,
-      coreSellingPoint: record.coreSellingPoint,
-      targetAudience: record.targetAudience,
-      existingEnglishTitle: record.existingEnglishTitle,
-      optimizedEnglishTitle: record.optimizedEnglishTitle,
-      optimizedMainImageUrl: record.optimizedMainImageUrl,
       note: record.note,
       images: record.images,
     });
@@ -457,13 +423,7 @@ export default function Home() {
     costPrice: record.costPrice,
     salePrice: record.salePrice,
     weight: record.weight,
-    mainSellingPoints: record.mainSellingPoints,
-    coreSellingPoint: record.coreSellingPoint,
-    targetAudience: record.targetAudience,
-    existingEnglishTitle: record.existingEnglishTitle,
-    optimizedEnglishTitle: record.optimizedEnglishTitle,
     originalImageUrl: record.images[0] ?? "",
-    optimizedMainImageUrl: record.optimizedMainImageUrl,
     note: record.note,
     createdAt: new Date(record.createdAt).toLocaleString(),
     updatedAt: new Date(record.updatedAt).toLocaleString(),
@@ -487,55 +447,6 @@ export default function Home() {
       sheetName: scope === "today" ? `今日上新-${todayString()}` : "勾选记录",
     });
     toast.success(scope === "today" ? "今日记录已导出为 Excel" : `已导出 ${exportRecords.length} 条勾选记录`);
-  };
-
-  const handleOptimizeEnglishTitle = async () => {
-    if (!form.productName.trim()) {
-      toast.error("请先填写产品名称");
-      return;
-    }
-    if (!form.mainSellingPoints.trim()) {
-      toast.error("请先填写主要卖点");
-      return;
-    }
-
-    const result = await optimizeTitleMutation.mutateAsync({
-      productName: form.productName.trim(),
-      mainSellingPoints: form.mainSellingPoints.trim(),
-      existingEnglishTitle: form.existingEnglishTitle.trim(),
-    });
-
-    setForm((prev) => ({ ...prev, optimizedEnglishTitle: result.title }));
-    toast.success("英文标题已生成，可继续微调后保存");
-  };
-
-  const handleOptimizeMainImage = async () => {
-    if (!form.productName.trim()) {
-      toast.error("请先填写产品名称");
-      return;
-    }
-    if (!form.coreSellingPoint.trim()) {
-      toast.error("请先填写核心卖点");
-      return;
-    }
-    if (!form.targetAudience.trim()) {
-      toast.error("请先填写目标人群");
-      return;
-    }
-    if (!form.images[0]) {
-      toast.error("请先上传至少一张原始商品图");
-      return;
-    }
-
-    const result = await optimizeImageMutation.mutateAsync({
-      productName: form.productName.trim(),
-      coreSellingPoint: form.coreSellingPoint.trim(),
-      targetAudience: form.targetAudience.trim(),
-      sourceImage: form.images[0],
-    });
-
-    setForm((prev) => ({ ...prev, optimizedMainImageUrl: result.imageUrl ?? "" }));
-    toast.success("主图优化已完成，保存记录后可长期留存");
   };
 
   return (
@@ -742,70 +653,6 @@ export default function Home() {
                   </p>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2">
-                  <Field label="主要卖点" required>
-                    <textarea
-                      value={form.mainSellingPoints}
-                      onChange={(e) => setForm((prev) => ({ ...prev, mainSellingPoints: e.target.value }))}
-                      placeholder="例如：防滑底座、可折叠收纳、适合厨房和浴室"
-                      className={`${inputClass} min-h-[112px] resize-y py-3`}
-                    />
-                  </Field>
-                  <Field label="核心卖点" required>
-                    <textarea
-                      value={form.coreSellingPoint}
-                      onChange={(e) => setForm((prev) => ({ ...prev, coreSellingPoint: e.target.value }))}
-                      placeholder="用于主图优化，例如：厚实防滑材质与高颜值桌面陈列感"
-                      className={`${inputClass} min-h-[112px] resize-y py-3`}
-                    />
-                  </Field>
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <Field label="目标人群" required>
-                    <input
-                      value={form.targetAudience}
-                      onChange={(e) => setForm((prev) => ({ ...prev, targetAudience: e.target.value }))}
-                      placeholder="例如：美国年轻家庭、租房人群、厨房整理爱好者"
-                      className={inputClass}
-                    />
-                  </Field>
-                  <Field label="现有英文标题">
-                    <input
-                      value={form.existingEnglishTitle}
-                      onChange={(e) => setForm((prev) => ({ ...prev, existingEnglishTitle: e.target.value }))}
-                      placeholder="已有英文标题可粘贴到这里，便于 AI 再优化"
-                      className={inputClass}
-                    />
-                  </Field>
-                </div>
-
-                <div className="rounded-[1.35rem] border border-[#d8ddd3] bg-white/80 p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-slate-800">AI 英文标题优化</p>
-                      <p className="mt-1 text-xs leading-6 text-slate-500">基于产品名称、主要卖点和现有英文标题，生成更适合 Temu 美国站的单条英文标题。</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void handleOptimizeEnglishTitle()}
-                      disabled={optimizeTitleMutation.isPending}
-                      className={secondaryButtonClass}
-                    >
-                      {optimizeTitleMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                      生成英文标题
-                    </button>
-                  </div>
-                  <div className="mt-4">
-                    <textarea
-                      value={form.optimizedEnglishTitle}
-                      onChange={(e) => setForm((prev) => ({ ...prev, optimizedEnglishTitle: e.target.value }))}
-                      placeholder="点击上方按钮后，这里会生成可直接用于平台上新的英文标题"
-                      className={`${inputClass} min-h-[120px] resize-y py-3`}
-                    />
-                  </div>
-                </div>
-
                 <Field label="商品图片（最多 4 张）" icon={<ImagePlus className="h-4 w-4" />}>
                   <label className="group flex min-h-32 cursor-pointer flex-col items-center justify-center gap-3 rounded-[1.35rem] border border-dashed border-[#7d8f7f]/30 bg-[#f3f1ec] px-4 py-5 text-center transition hover:border-[#728572]/50 hover:bg-[#eeece6]">
                     <div className="rounded-full bg-[#dfe7de] p-3 text-[#4f5f4e] transition group-hover:scale-105">
@@ -873,50 +720,6 @@ export default function Home() {
                     ))}
                   </div>
                 )}
-
-                <div className="rounded-[1.35rem] border border-[#d8ddd3] bg-white/80 p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-slate-800">AI 主图优化</p>
-                      <p className="mt-1 text-xs leading-6 text-slate-500">默认基于你上传的首张商品图生成更适合 Temu 首图的版本，不改变商品真实外观。</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void handleOptimizeMainImage()}
-                      disabled={optimizeImageMutation.isPending || !form.images[0]}
-                      className={secondaryButtonClass}
-                    >
-                      {optimizeImageMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                      优化主图
-                    </button>
-                  </div>
-
-                  {form.optimizedMainImageUrl ? (
-                    <div className="mt-4 overflow-hidden rounded-[1.3rem] border border-black/6 bg-[#f8f5ef]">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setPreviewImage({
-                            src: form.optimizedMainImageUrl,
-                            alt: `${form.productName || "商品"} AI 主图`,
-                            caption: "AI 优化主图预览",
-                          })
-                        }
-                        className="group relative block w-full"
-                      >
-                        <img src={form.optimizedMainImageUrl} alt="AI 优化主图" className="h-56 w-full object-cover" />
-                        <span className="absolute inset-x-0 bottom-0 inline-flex items-center justify-center gap-1 bg-gradient-to-t from-black/60 to-transparent px-3 py-3 text-xs text-white opacity-0 transition group-hover:opacity-100">
-                          <Maximize2 className="h-3.5 w-3.5" />
-                          查看 AI 主图大图
-                        </span>
-                      </button>
-                    </div>
-                  ) : (
-                    <p className="mt-4 rounded-[1.15rem] border border-dashed border-[#d8ddd3] bg-[#f8f5ef] px-4 py-4 text-sm leading-6 text-slate-500">
-                      上传原图并填写核心卖点与目标人群后，可一键生成更适合 Temu 美国站展示的主图。
-                    </p>
-                  )}
-                </div>
 
                 <Field label="产品备注" icon={<StickyNote className="h-4 w-4" />}>
                   <textarea
@@ -1123,9 +926,6 @@ export default function Home() {
                                     <InfoBox label={record.firstLegShippingFee || record.lastLegShippingFee || record.overseasWarehouseFee ? "总成本" : "历史总成本"} value={record.costPrice ? currency(Number(record.costPrice)) : "—"} />
                                     <InfoBox label="售价" value={record.salePrice ? currency(Number(record.salePrice)) : "—"} />
                                     <InfoBox label="重量" value={record.weight ? `${record.weight} g` : "—"} />
-                                    <InfoBox label="主要卖点" value={record.mainSellingPoints || "—"} />
-                                    <InfoBox label="核心卖点" value={record.coreSellingPoint || "—"} />
-                                    <InfoBox label="目标人群" value={record.targetAudience || "—"} />
                                   </div>
 
                                   {!(record.firstLegShippingFee || record.lastLegShippingFee || record.overseasWarehouseFee) ? (
@@ -1139,74 +939,85 @@ export default function Home() {
                                     <LinkBox label="货源平台链接" href={record.supplierUrl} />
                                   </div>
 
-                                  {(record.existingEnglishTitle || record.optimizedEnglishTitle) && (
-                                    <div className="mt-5 grid gap-4 lg:grid-cols-2">
-                                      <InfoBox label="现有英文标题" value={record.existingEnglishTitle || "—"} />
-                                      <InfoBox label="AI 优化英文标题" value={record.optimizedEnglishTitle || "—"} />
-                                    </div>
-                                  )}
+                                  {(() => {
+                                    const originalImage = record.images[0] ?? "";
+                                    const savedImage = record.optimizedMainImageUrl ?? "";
+                                    const redundantSavedImage =
+                                      Boolean(originalImage && savedImage) && originalImage === savedImage;
+                                    const showSavedImagePanel = Boolean(savedImage) && !redundantSavedImage;
 
-                                  {(record.images[0] || record.optimizedMainImageUrl) && (
-                                    <div className="mt-5 grid gap-4 lg:grid-cols-2">
-                                      <div className="rounded-[1.25rem] border border-black/6 bg-[#f7f4ee] p-4">
-                                        <div>
-                                          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">商品原图</p>
-                                          <p className="mt-2 text-sm leading-6 text-slate-600">保留紧凑卡片展示，点击可查看大图。</p>
-                                        </div>
-                                        {record.images[0] ? (
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              setPreviewImage({
-                                                src: record.images[0],
-                                                alt: record.productName,
-                                                caption: `${record.productName} · 主图`,
-                                              })
-                                            }
-                                            className="mt-4 group relative block overflow-hidden rounded-[1.2rem] border border-black/6 bg-white"
-                                          >
-                                            <img
-                                              src={record.images[0]}
-                                              alt={record.productName}
-                                              className="aspect-square w-full object-cover transition duration-200 group-hover:scale-[1.02]"
-                                            />
-                                            <span className="absolute inset-0 flex items-end justify-center bg-gradient-to-t from-black/60 via-black/10 to-transparent px-3 py-3 text-xs text-white opacity-0 transition group-hover:opacity-100">
-                                              点击查看原图
-                                            </span>
-                                          </button>
-                                        ) : (
-                                          <div className="mt-4 flex aspect-square items-center justify-center rounded-[1.2rem] border border-dashed border-black/10 bg-[#faf7f1] px-4 text-center text-sm leading-6 text-slate-500">
-                                            当前未上传图片
-                                          </div>
-                                        )}
-                                      </div>
+                                    if (!originalImage && !showSavedImagePanel) {
+                                      return null;
+                                    }
 
-                                      {record.optimizedMainImageUrl ? (
+                                    return (
+                                      <div
+                                        className={`mt-5 grid gap-4 ${showSavedImagePanel ? "lg:grid-cols-2" : "lg:grid-cols-1"}`}
+                                      >
                                         <div className="rounded-[1.25rem] border border-black/6 bg-[#f7f4ee] p-4">
                                           <div>
-                                            <p className="text-xs uppercase tracking-[0.2em] text-slate-500">AI 优化主图</p>
-                                            <p className="mt-2 text-sm leading-6 text-slate-600">已根据首张原图、核心卖点和目标人群生成更适合 Temu 首图使用的版本。</p>
+                                            <p className="text-xs uppercase tracking-[0.2em] text-slate-500">商品原图</p>
+                                            <p className="mt-2 text-sm leading-6 text-slate-600">保留紧凑卡片展示，点击可查看大图。</p>
                                           </div>
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              setPreviewImage({
-                                                src: record.optimizedMainImageUrl,
-                                                alt: `${record.productName} AI 主图`,
-                                                caption: `${record.productName} · AI 优化主图`,
-                                              })
-                                            }
-                                            className="mt-4 group relative block overflow-hidden rounded-[1.2rem] border border-black/6 bg-white"
-                                          >
-                                            <img src={record.optimizedMainImageUrl} alt={`${record.productName} AI 主图`} className="aspect-square w-full object-cover" />
-                                            <span className="absolute inset-0 flex items-end justify-center bg-gradient-to-t from-black/60 via-black/10 to-transparent px-3 py-3 text-xs text-white opacity-0 transition group-hover:opacity-100">
-                                              点击查看 AI 主图
-                                            </span>
-                                          </button>
+                                          {originalImage ? (
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                setPreviewImage({
+                                                  src: originalImage,
+                                                  alt: record.productName,
+                                                  caption: `${record.productName} · 主图`,
+                                                })
+                                              }
+                                              className="mt-4 group relative block overflow-hidden rounded-[1.2rem] border border-black/6 bg-white"
+                                            >
+                                              <img
+                                                src={originalImage}
+                                                alt={record.productName}
+                                                className="aspect-square w-full object-cover transition duration-200 group-hover:scale-[1.02]"
+                                              />
+                                              <span className="absolute inset-0 flex items-end justify-center bg-gradient-to-t from-black/60 via-black/10 to-transparent px-3 py-3 text-xs text-white opacity-0 transition group-hover:opacity-100">
+                                                点击查看原图
+                                              </span>
+                                            </button>
+                                          ) : (
+                                            <div className="mt-4 flex aspect-square items-center justify-center rounded-[1.2rem] border border-dashed border-black/10 bg-[#faf7f1] px-4 text-center text-sm leading-6 text-slate-500">
+                                              当前未上传图片
+                                            </div>
+                                          )}
                                         </div>
-                                      ) : null}
-                                    </div>
-                                  )}
+
+                                        {showSavedImagePanel ? (
+                                          <div className="rounded-[1.25rem] border border-black/6 bg-[#f7f4ee] p-4">
+                                            <div>
+                                              <p className="text-xs uppercase tracking-[0.2em] text-slate-500">已保存主图</p>
+                                              <p className="mt-2 text-sm leading-6 text-slate-600">来自历史记录中的单独主图字段；若与首张原图重复，将自动隐藏以免重复展示。</p>
+                                            </div>
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                setPreviewImage({
+                                                  src: savedImage,
+                                                  alt: `${record.productName} 已保存主图`,
+                                                  caption: `${record.productName} · 已保存主图`,
+                                                })
+                                              }
+                                              className="mt-4 group relative block overflow-hidden rounded-[1.2rem] border border-black/6 bg-white"
+                                            >
+                                              <img
+                                                src={savedImage}
+                                                alt={`${record.productName} 已保存主图`}
+                                                className="aspect-square w-full object-cover"
+                                              />
+                                              <span className="absolute inset-0 flex items-end justify-center bg-gradient-to-t from-black/60 via-black/10 to-transparent px-3 py-3 text-xs text-white opacity-0 transition group-hover:opacity-100">
+                                                点击查看大图
+                                              </span>
+                                            </button>
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    );
+                                  })()}
 
                                   {record.note && (
                                     <div className="mt-5 rounded-[1.25rem] border border-black/6 bg-[#f7f4ee] p-4">

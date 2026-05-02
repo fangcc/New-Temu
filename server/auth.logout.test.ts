@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { appRouter } from "./routers";
+import { LOCAL_SESSION_COOKIE_NAME } from "./_core/authCookies";
 import { COOKIE_NAME } from "../shared/const";
 import type { TrpcContext } from "./_core/context";
 
@@ -49,14 +50,21 @@ describe("auth.logout", () => {
     const result = await caller.auth.logout();
 
     expect(result).toEqual({ success: true });
-    expect(clearedCookies).toHaveLength(1);
-    expect(clearedCookies[0]?.name).toBe(COOKIE_NAME);
-    expect(clearedCookies[0]?.options).toMatchObject({
+    expect(clearedCookies).toHaveLength(2);
+
+    const expectedOptions = {
       maxAge: -1,
       secure: true,
-      sameSite: "none",
+      sameSite: "lax",
       httpOnly: true,
       path: "/",
+    };
+
+    const names = clearedCookies.map((item) => item.name).sort();
+    expect(names).toEqual([COOKIE_NAME, LOCAL_SESSION_COOKIE_NAME].sort());
+
+    clearedCookies.forEach((item) => {
+      expect(item.options).toMatchObject(expectedOptions);
     });
   });
 });
