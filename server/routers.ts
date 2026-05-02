@@ -1,5 +1,11 @@
 import { z } from "zod";
 import { createProductRecord, deleteProductRecord, listProductRecords, updateProductRecord } from "./db";
+import {
+  createLiveListing,
+  deleteLiveListing,
+  listLiveListings,
+  updateLiveListing,
+} from "./liveListingsDb";
 import { clearAuthCookies } from "./_core/authCookies";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
@@ -21,6 +27,21 @@ const productRecordInputSchema = z.object({
   optimizedMainImageUrl: z.string().optional().default(""),
   note: z.string().optional().default(""),
   images: z.array(z.string()).max(4, "最多上传 4 张图片").optional().default([]),
+});
+
+const liveListingInputSchema = z.object({
+  spuId: z.string().min(1, "请填写 SPU"),
+  productName: z.string().min(1, "请填写产品名称"),
+  supplier1688Url: z.string().optional().default(""),
+  weight: z.string().optional().default(""),
+  purchaseUnitPrice: z.string().optional().default(""),
+  firstLegShippingFee: z.string().optional().default(""),
+  lastLegShippingFee: z.string().optional().default(""),
+  overseasWarehouseFee: z.string().optional().default(""),
+  declaredPrice: z.string().optional().default(""),
+  subsidySellingPrice: z.string().optional().default(""),
+  sourceProductRecordId: z.string().optional().default(""),
+  note: z.string().optional().default(""),
 });
 
 export const appRouter = router({
@@ -59,6 +80,29 @@ export const appRouter = router({
       )
       .mutation(async ({ input }) => {
         return deleteProductRecord(input.id);
+      }),
+  }),
+  liveListings: router({
+    list: protectedProcedure.query(async () => {
+      return listLiveListings();
+    }),
+    create: protectedProcedure.input(liveListingInputSchema).mutation(async ({ input }) => {
+      return createLiveListing(input);
+    }),
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.string().min(1, "缺少记录 ID"),
+          data: liveListingInputSchema,
+        }),
+      )
+      .mutation(async ({ input }) => {
+        return updateLiveListing(input.id, input.data);
+      }),
+    delete: protectedProcedure
+      .input(z.object({ id: z.string().min(1, "缺少记录 ID") }))
+      .mutation(async ({ input }) => {
+        return deleteLiveListing(input.id);
       }),
   }),
 });

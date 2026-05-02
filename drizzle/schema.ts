@@ -47,7 +47,31 @@ export const productRecords = mysqlTable("product_records", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+/** 已通过核价、按 SPU 唯一管理的在售台账（与「上新记录」分离）。 */
+export const liveProductListings = mysqlTable("live_product_listings", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  spuId: varchar("spuId", { length: 64 }).notNull().unique(),
+  productName: varchar("productName", { length: 255 }).notNull(),
+  supplier1688Url: text("supplier1688Url").notNull(),
+  weight: varchar("weight", { length: 32 }).default("").notNull(),
+  purchaseUnitPrice: varchar("purchaseUnitPrice", { length: 32 }).default("").notNull(),
+  firstLegShippingFee: varchar("firstLegShippingFee", { length: 32 }).default("").notNull(),
+  lastLegShippingFee: varchar("lastLegShippingFee", { length: 32 }).default("").notNull(),
+  overseasWarehouseFee: varchar("overseasWarehouseFee", { length: 32 }).default("").notNull(),
+  declaredPrice: varchar("declaredPrice", { length: 32 }).default("").notNull(),
+  subsidySellingPrice: varchar("subsidySellingPrice", { length: 32 }).default("").notNull(),
+  totalCost: varchar("totalCost", { length: 32 }).default("").notNull(),
+  grossProfit: varchar("grossProfit", { length: 32 }).default("").notNull(),
+  profitMarginPercent: varchar("profitMarginPercent", { length: 32 }).default("").notNull(),
+  sourceProductRecordId: varchar("sourceProductRecordId", { length: 64 }).default("").notNull(),
+  note: text("note").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type ProductRecordRow = typeof productRecords.$inferSelect;
 export type InsertProductRecordRow = typeof productRecords.$inferInsert;
+export type LiveProductListingRow = typeof liveProductListings.$inferSelect;
+export type InsertLiveProductListingRow = typeof liveProductListings.$inferInsert;

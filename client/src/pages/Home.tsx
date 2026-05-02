@@ -21,12 +21,14 @@ import {
   PackagePlus,
   Pencil,
   Search,
+  Store,
   StickyNote,
   Trash2,
   Weight,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
+import { Link } from "wouter";
 import {
   Pagination,
   PaginationContent,
@@ -461,6 +463,13 @@ export default function Home() {
               <p className="mt-3 text-sm leading-6 text-stone-400">
                 为日常上新、核价追踪和产品备注准备的轻量工作台。尽量弱化登录感知，打开同一网址即可查看同一份记录。
               </p>
+              <Link
+                href="/live"
+                className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2.5 text-sm font-medium text-stone-100 transition hover:bg-white/15"
+              >
+                <Store className="h-4 w-4" />
+                在售产品（SPU）
+              </Link>
             </div>
 
             <div className="space-y-3 rounded-[1.5rem] border border-white/8 bg-white/5 p-4 backdrop-blur-sm">

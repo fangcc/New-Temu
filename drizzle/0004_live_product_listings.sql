@@ -1,0 +1,22 @@
+CREATE TABLE `live_product_listings` (
+	`id` varchar(64) NOT NULL,
+	`spuId` varchar(64) NOT NULL,
+	`productName` varchar(255) NOT NULL,
+	`supplier1688Url` text NOT NULL,
+	`weight` varchar(32) NOT NULL DEFAULT '',
+	`purchaseUnitPrice` varchar(32) NOT NULL DEFAULT '',
+	`firstLegShippingFee` varchar(32) NOT NULL DEFAULT '',
+	`lastLegShippingFee` varchar(32) NOT NULL DEFAULT '',
+	`overseasWarehouseFee` varchar(32) NOT NULL DEFAULT '',
+	`declaredPrice` varchar(32) NOT NULL DEFAULT '',
+	`subsidySellingPrice` varchar(32) NOT NULL DEFAULT '',
+	`totalCost` varchar(32) NOT NULL DEFAULT '',
+	`grossProfit` varchar(32) NOT NULL DEFAULT '',
+	`profitMarginPercent` varchar(32) NOT NULL DEFAULT '',
+	`sourceProductRecordId` varchar(64) NOT NULL DEFAULT '',
+	`note` text NOT NULL,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `live_product_listings_id` PRIMARY KEY(`id`),
+	CONSTRAINT `live_product_listings_spuId_unique` UNIQUE(`spuId`)
+);
