@@ -3,6 +3,7 @@ import * as XLSX from "xlsx";
 import { ExternalLink, FileSpreadsheet, LayoutList, Loader2, Pencil, Plus, Search, Store, Trash2, Weight } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "wouter";
+import { inverseDeclaredPriceForTargetMargin, simulateActivityPricing } from "@shared/liveListingActivitySim";
 import { findLiveListingHeaderRowIndex, parseLiveListingImportMatrix } from "@shared/liveListingImportParse";
 import { computeLiveListingMetrics } from "@shared/liveListingMath";
 import {
@@ -115,6 +116,13 @@ export default function LiveListings() {
   const [keyword, setKeyword] = useState("");
   const [minMargin, setMinMargin] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  /** 活动模拟：申报核价 × 折扣 + 加价 = 活动后补贴售价 */
+  const [actDiscount, setActDiscount] = useState("0.6");
+  const [actFee, setActFee] = useState("21");
+  /** 仅保留「活动后」利润率 ≥ 该值（%），留空不过滤 */
+  const [actMinMarginAfter, setActMinMarginAfter] = useState("");
+  /** 反推：达到该目标利润率（%）所需的申报核价，留空不显示列 */
+  const [actInverseMargin, setActInverseMargin] = useState("");
 
   const listQuery = trpc.liveListings.list.useQuery(undefined, { staleTime: 10_000 });
 
@@ -191,10 +199,30 @@ export default function LiveListings() {
     ],
   );
 
+  const activityParams = useMemo(() => {
+    const r = Number(actDiscount.trim());
+    const f = Number(actFee.trim());
+    const minAfter = actMinMarginAfter.trim() === "" ? null : Number(actMinMarginAfter.trim());
+    const inv = actInverseMargin.trim() === "" ? null : Number(actInverseMargin.trim());
+    const rOk = Number.isFinite(r) && r > 0 && r <= 1;
+    const fOk = Number.isFinite(f) && f >= 0;
+    return {
+      discount: rOk ? r : 0.6,
+      fee: fOk ? f : 21,
+      rOk,
+      fOk,
+      useSimFilter: minAfter !== null && Number.isFinite(minAfter) && rOk && fOk,
+      minAfter: minAfter ?? 0,
+      showInverseCol: inv !== null && Number.isFinite(inv) && inv > 0 && inv < 100 && rOk && fOk,
+      inversePct: inv ?? 0,
+    };
+  }, [actDiscount, actFee, actMinMarginAfter, actInverseMargin]);
+
   const filteredRows = useMemo(() => {
     const q = keyword.trim().toLowerCase();
     const min = Number(minMargin.trim());
     const useMin = minMargin.trim() !== "" && Number.isFinite(min);
+    const { discount, fee, useSimFilter, minAfter } = activityParams;
 
     return records.filter((row) => {
       const margin = parsePercent(row.profitMarginPercent);
@@ -202,20 +230,40 @@ export default function LiveListings() {
         return false;
       }
       if (!q) {
-        return true;
+        // fall through to activity filter
+      } else {
+        const hay = [
+          row.spuId,
+          row.productName,
+          row.supplier1688Url,
+          row.note,
+          row.sourceProductRecordId,
+        ]
+          .join(" ")
+          .toLowerCase();
+        if (!hay.includes(q)) {
+          return false;
+        }
       }
-      const hay = [
-        row.spuId,
-        row.productName,
-        row.supplier1688Url,
-        row.note,
-        row.sourceProductRecordId,
-      ]
-        .join(" ")
-        .toLowerCase();
-      return hay.includes(q);
+
+      if (useSimFilter) {
+        const sim = simulateActivityPricing({
+          declaredPrice: row.declaredPrice,
+          totalCost: row.totalCost,
+          discountMultiplier: discount,
+          subsidyAddon: fee,
+        });
+        if (!sim) {
+          return false;
+        }
+        if (sim.marginPercent + 1e-9 < minAfter) {
+          return false;
+        }
+      }
+
+      return true;
     });
-  }, [records, keyword, minMargin]);
+  }, [records, keyword, minMargin, activityParams]);
 
   const paginationState = useMemo(
     () => getRecordPaginationState(filteredRows, currentPage, LIVE_LISTINGS_RECORDS_PER_PAGE),
@@ -225,7 +273,7 @@ export default function LiveListings() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [keyword, minMargin]);
+  }, [keyword, minMargin, actDiscount, actFee, actMinMarginAfter, actInverseMargin]);
 
   useEffect(() => {
     if (paginationState.currentPage !== currentPage) {
@@ -495,8 +543,52 @@ export default function LiveListings() {
               </div>
             </div>
 
+            <div className="rounded-[1.5rem] border border-[#c4cbbf] bg-[#eef1ea] p-4 text-sm text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.5)]">
+              <p className="font-medium text-slate-900">活动报名模拟（例：6 折）</p>
+              <p className="mt-1 leading-6 text-slate-600">
+                规则：活动后申报核价 = 申报核价 × 折扣系数；活动后补贴售价 = 活动后申报核价 + 加价；活动后毛利 = 活动后补贴售价 −
+                总成本；活动后利润率 = 活动后毛利 ÷ 活动后补贴售价。用于判断能否报名某类折扣（可自行改折扣与加价，如尾程按 21 / 28
+                等）。
+              </p>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <Field label="折扣系数（申报核价×）" required>
+                  <input
+                    inputMode="decimal"
+                    value={actDiscount}
+                    onChange={(e) => setActDiscount(e.target.value)}
+                    placeholder="6 折填 0.6，7 折填 0.7"
+                    className={inputClass}
+                  />
+                </Field>
+                <Field label="活动后补贴加价（元）" required>
+                  <input inputMode="decimal" value={actFee} onChange={(e) => setActFee(e.target.value)} placeholder="如 21" className={inputClass} />
+                </Field>
+                <Field label="筛选：活动后利润率 ≥（%）">
+                  <input
+                    inputMode="decimal"
+                    value={actMinMarginAfter}
+                    onChange={(e) => setActMinMarginAfter(e.target.value)}
+                    placeholder="如 10，留空不过滤"
+                    className={inputClass}
+                  />
+                </Field>
+                <Field label="反推：目标利润率（%）">
+                  <input
+                    inputMode="decimal"
+                    value={actInverseMargin}
+                    onChange={(e) => setActInverseMargin(e.target.value)}
+                    placeholder="如 10，显示达标申报核价"
+                    className={inputClass}
+                  />
+                </Field>
+              </div>
+              {(!activityParams.rOk || !activityParams.fOk) && (
+                <p className="mt-2 text-xs text-amber-800">折扣需在 0～1 之间，加价需为数字；当前将按默认 0.6 与 21 参与计算展示。</p>
+              )}
+            </div>
+
             <div className="overflow-x-auto rounded-[1.5rem] border border-black/6 bg-white shadow-[0_18px_50px_rgba(38,30,24,0.06)]">
-              <table className="min-w-[920px] w-full border-collapse text-left text-sm">
+              <table className="min-w-[1180px] w-full border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-black/8 bg-[#f7f4ee] text-xs uppercase tracking-[0.12em] text-slate-500">
                     <th className="px-3 py-3">SPU</th>
@@ -506,6 +598,13 @@ export default function LiveListings() {
                     <th className="px-3 py-3">补贴售价</th>
                     <th className="px-3 py-3">毛利</th>
                     <th className="px-3 py-3">利润率</th>
+                    <th className="px-3 py-3">活动申报</th>
+                    <th className="px-3 py-3">活动补贴</th>
+                    <th className="px-3 py-3">活动毛利</th>
+                    <th className="px-3 py-3">活动利润率</th>
+                    {activityParams.showInverseCol ? (
+                      <th className="px-3 py-3">达标申报({activityParams.inversePct}%)</th>
+                    ) : null}
                     <th className="px-3 py-3">1688</th>
                     <th className="px-3 py-3 text-right">操作</th>
                   </tr>
@@ -513,62 +612,116 @@ export default function LiveListings() {
                 <tbody>
                   {listQuery.isLoading ? (
                     <tr>
-                      <td colSpan={9} className="px-4 py-10 text-center text-slate-500">
+                      <td
+                        colSpan={13 + (activityParams.showInverseCol ? 1 : 0)}
+                        className="px-4 py-10 text-center text-slate-500"
+                      >
                         <Loader2 className="mx-auto mb-2 h-6 w-6 animate-spin opacity-60" />
                         加载中…
                       </td>
                     </tr>
                   ) : filteredRows.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-4 py-10 text-center text-slate-500">
+                      <td
+                        colSpan={13 + (activityParams.showInverseCol ? 1 : 0)}
+                        className="px-4 py-10 text-center text-slate-500"
+                      >
                         暂无数据，或筛选条件过严
                       </td>
                     </tr>
                   ) : (
-                    paginatedRows.map((row) => (
-                      <tr key={row.id} className="border-b border-black/5 hover:bg-[#fcfbf8]">
-                        <td className="px-3 py-3 font-mono text-xs text-slate-800">{row.spuId}</td>
-                        <td className="max-w-[200px] px-3 py-3">
-                          <span className="line-clamp-2 text-slate-800">{row.productName}</span>
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-3">{row.totalCost ? currency(Number(row.totalCost)) : "—"}</td>
-                        <td className="whitespace-nowrap px-3 py-3">{row.declaredPrice ? currency(Number(row.declaredPrice)) : "—"}</td>
-                        <td className="whitespace-nowrap px-3 py-3">{row.subsidySellingPrice ? currency(Number(row.subsidySellingPrice)) : "—"}</td>
-                        <td className="whitespace-nowrap px-3 py-3">{row.grossProfit ? currency(Number(row.grossProfit)) : "—"}</td>
-                        <td className="whitespace-nowrap px-3 py-3 font-medium text-[#50604f]">
-                          {row.profitMarginPercent ? `${row.profitMarginPercent}%` : "—"}
-                        </td>
-                        <td className="px-3 py-3">
-                          {row.supplier1688Url ? (
-                            <a
-                              href={row.supplier1688Url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex text-[#50604f] hover:underline"
+                    paginatedRows.map((row) => {
+                      const sim = simulateActivityPricing({
+                        declaredPrice: row.declaredPrice,
+                        totalCost: row.totalCost,
+                        discountMultiplier: activityParams.discount,
+                        subsidyAddon: activityParams.fee,
+                      });
+                      const needDeclared = activityParams.showInverseCol
+                        ? inverseDeclaredPriceForTargetMargin({
+                            totalCost: row.totalCost,
+                            discountMultiplier: activityParams.discount,
+                            subsidyAddon: activityParams.fee,
+                            targetMarginPercent: activityParams.inversePct,
+                          })
+                        : null;
+                      const curDeclared = Number(String(row.declaredPrice ?? "").trim());
+                      const meetsDeclared =
+                        needDeclared !== null &&
+                        Number.isFinite(curDeclared) &&
+                        curDeclared + 1e-6 >= needDeclared;
+
+                      return (
+                        <tr key={row.id} className="border-b border-black/5 hover:bg-[#fcfbf8]">
+                          <td className="px-3 py-3 font-mono text-xs text-slate-800">{row.spuId}</td>
+                          <td className="max-w-[200px] px-3 py-3">
+                            <span className="line-clamp-2 text-slate-800">{row.productName}</span>
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-3">{row.totalCost ? currency(Number(row.totalCost)) : "—"}</td>
+                          <td className="whitespace-nowrap px-3 py-3">{row.declaredPrice ? currency(Number(row.declaredPrice)) : "—"}</td>
+                          <td className="whitespace-nowrap px-3 py-3">{row.subsidySellingPrice ? currency(Number(row.subsidySellingPrice)) : "—"}</td>
+                          <td className="whitespace-nowrap px-3 py-3">{row.grossProfit ? currency(Number(row.grossProfit)) : "—"}</td>
+                          <td className="whitespace-nowrap px-3 py-3 font-medium text-[#50604f]">
+                            {row.profitMarginPercent ? `${row.profitMarginPercent}%` : "—"}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-3 text-slate-700">
+                            {sim ? currency(sim.newDeclaredPrice) : "—"}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-3 text-slate-700">
+                            {sim ? currency(sim.newSubsidyPrice) : "—"}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-3 text-slate-700">{sim ? currency(sim.grossProfit) : "—"}</td>
+                          <td className="whitespace-nowrap px-3 py-3 font-medium text-[#50604f]">
+                            {sim ? `${sim.marginPercent}%` : "—"}
+                          </td>
+                          {activityParams.showInverseCol ? (
+                            <td className="max-w-[9rem] px-3 py-3 text-slate-700">
+                              {needDeclared === null ? (
+                                "—"
+                              ) : (
+                                <span className="flex flex-col gap-0.5">
+                                  <span>{currency(needDeclared)}</span>
+                                  {meetsDeclared ? (
+                                    <span className="text-[0.65rem] font-medium text-[#50604f]">当前申报已≥达标</span>
+                                  ) : (
+                                    <span className="text-[0.65rem] text-amber-800">当前申报偏低</span>
+                                  )}
+                                </span>
+                              )}
+                            </td>
+                          ) : null}
+                          <td className="px-3 py-3">
+                            {row.supplier1688Url ? (
+                              <a
+                                href={row.supplier1688Url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex text-[#50604f] hover:underline"
+                              >
+                                <ExternalLink className="h-4 w-4" />
+                              </a>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-3 text-right">
+                            <button type="button" onClick={() => handleEdit(row)} className={secondaryButtonClass + " mr-1 py-1.5"}>
+                              <Pencil className="h-3.5 w-3.5" />
+                              编辑
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void deleteMutation.mutateAsync({ id: row.id })}
+                              disabled={deleteMutation.isPending}
+                              className={dangerButtonClass + " py-1.5"}
                             >
-                              <ExternalLink className="h-4 w-4" />
-                            </a>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-3 text-right">
-                          <button type="button" onClick={() => handleEdit(row)} className={secondaryButtonClass + " mr-1 py-1.5"}>
-                            <Pencil className="h-3.5 w-3.5" />
-                            编辑
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void deleteMutation.mutateAsync({ id: row.id })}
-                            disabled={deleteMutation.isPending}
-                            className={dangerButtonClass + " py-1.5"}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                            删除
-                          </button>
-                        </td>
-                      </tr>
-                    ))
+                              <Trash2 className="h-3.5 w-3.5" />
+                              删除
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
