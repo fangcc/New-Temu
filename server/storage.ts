@@ -57,9 +57,24 @@ function getS3Config() {
   const region = ENV.s3Region.trim();
   const accessKeyId = ENV.awsAccessKeyId.trim();
   const secretAccessKey = ENV.awsSecretAccessKey.trim();
-  const endpoint = ENV.s3Endpoint.trim();
+  let endpoint = ENV.s3Endpoint.trim();
 
   if (!bucket || !region || !accessKeyId || !secretAccessKey) return null;
+
+  // Cloudflare's UI sometimes shows an S3 endpoint URL that includes `/<bucket>` at the end.
+  // The AWS SDK expects `endpoint` to be the service host, with bucket provided separately.
+  if (endpoint.length > 0) {
+    try {
+      const url = new URL(endpoint);
+      const segments = url.pathname.replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
+      if (segments.length === 1 && segments[0] === bucket) {
+        url.pathname = "/";
+        endpoint = url.toString().replace(/\/+$/, "");
+      }
+    } catch {
+      // ignore invalid endpoint here; S3Client will throw a clearer error later
+    }
+  }
 
   return { bucket, region, accessKeyId, secretAccessKey, endpoint };
 }
