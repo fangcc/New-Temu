@@ -1,10 +1,25 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import * as XLSX from "xlsx";
 import { ExternalLink, FileSpreadsheet, LayoutList, Loader2, Pencil, Plus, Search, Store, Trash2, Weight } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "wouter";
 import { findLiveListingHeaderRowIndex, parseLiveListingImportMatrix } from "@shared/liveListingImportParse";
 import { computeLiveListingMetrics } from "@shared/liveListingMath";
+import {
+  getPageLabel,
+  getRecordPaginationState,
+  LIVE_LISTINGS_RECORDS_PER_PAGE,
+  shouldRenderPaginationEllipsis,
+} from "@shared/productRecords";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 import { trpc } from "@/lib/trpc";
 
 type LiveListing = {
@@ -99,6 +114,7 @@ export default function LiveListings() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [keyword, setKeyword] = useState("");
   const [minMargin, setMinMargin] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
 
   const listQuery = trpc.liveListings.list.useQuery(undefined, { staleTime: 10_000 });
 
@@ -175,7 +191,7 @@ export default function LiveListings() {
     ],
   );
 
-  const filtered = useMemo(() => {
+  const filteredRows = useMemo(() => {
     const q = keyword.trim().toLowerCase();
     const min = Number(minMargin.trim());
     const useMin = minMargin.trim() !== "" && Number.isFinite(min);
@@ -200,6 +216,22 @@ export default function LiveListings() {
       return hay.includes(q);
     });
   }, [records, keyword, minMargin]);
+
+  const paginationState = useMemo(
+    () => getRecordPaginationState(filteredRows, currentPage, LIVE_LISTINGS_RECORDS_PER_PAGE),
+    [filteredRows, currentPage],
+  );
+  const paginatedRows = paginationState.pageItems;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [keyword, minMargin]);
+
+  useEffect(() => {
+    if (paginationState.currentPage !== currentPage) {
+      setCurrentPage(paginationState.currentPage);
+    }
+  }, [currentPage, paginationState.currentPage]);
 
   const resetForm = () => {
     setForm(emptyForm);
@@ -440,7 +472,7 @@ export default function LiveListings() {
                 />
               </div>
               <p className="text-sm text-slate-500">
-                共 <span className="font-semibold text-slate-800">{filtered.length}</span> 条
+                共 <span className="font-semibold text-slate-800">{filteredRows.length}</span> 条
               </p>
               <div className="flex flex-col gap-1">
                 <label className="text-xs uppercase tracking-[0.2em] text-slate-500">Excel 导入</label>
@@ -486,14 +518,14 @@ export default function LiveListings() {
                         加载中…
                       </td>
                     </tr>
-                  ) : filtered.length === 0 ? (
+                  ) : filteredRows.length === 0 ? (
                     <tr>
                       <td colSpan={9} className="px-4 py-10 text-center text-slate-500">
                         暂无数据，或筛选条件过严
                       </td>
                     </tr>
                   ) : (
-                    filtered.map((row) => (
+                    paginatedRows.map((row) => (
                       <tr key={row.id} className="border-b border-black/5 hover:bg-[#fcfbf8]">
                         <td className="px-3 py-3 font-mono text-xs text-slate-800">{row.spuId}</td>
                         <td className="max-w-[200px] px-3 py-3">
@@ -541,6 +573,81 @@ export default function LiveListings() {
                 </tbody>
               </table>
             </div>
+
+            {paginationState.showPagination && (
+              <div id="live-listings-pagination" className="rounded-[1.35rem] border border-black/6 bg-[#f7f4ee] px-4 py-4 sm:px-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-sm text-slate-500">
+                    当前显示第 {paginationState.summary.start}-{paginationState.summary.end} 条，共 {filteredRows.length}{" "}
+                    条记录
+                  </p>
+                  <p className="text-sm font-medium text-[#50604f]">
+                    第 {paginationState.currentPage} / {paginationState.totalPages} 页
+                  </p>
+                </div>
+
+                <Pagination className="mt-3 justify-end">
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious
+                        href="#live-listings-pagination"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          setCurrentPage((prev) => Math.max(1, prev - 1));
+                        }}
+                        aria-disabled={paginationState.currentPage === 1}
+                        className={paginationState.currentPage === 1 ? "pointer-events-none opacity-45" : ""}
+                      />
+                    </PaginationItem>
+
+                    {paginationState.numbers.map((page, index) => {
+                      const previousPage = paginationState.numbers[index - 1];
+                      const needsEllipsis =
+                        previousPage !== undefined && shouldRenderPaginationEllipsis(previousPage, page);
+
+                      return (
+                        <Fragment key={page}>
+                          {needsEllipsis && (
+                            <PaginationItem>
+                              <PaginationEllipsis />
+                            </PaginationItem>
+                          )}
+                          <PaginationItem>
+                            <PaginationLink
+                              href="#live-listings-pagination"
+                              isActive={paginationState.currentPage === page}
+                              aria-label={getPageLabel(page)}
+                              onClick={(event) => {
+                                event.preventDefault();
+                                setCurrentPage(page);
+                              }}
+                            >
+                              {page}
+                            </PaginationLink>
+                          </PaginationItem>
+                        </Fragment>
+                      );
+                    })}
+
+                    <PaginationItem>
+                      <PaginationNext
+                        href="#live-listings-pagination"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          setCurrentPage((prev) => Math.min(paginationState.totalPages, prev + 1));
+                        }}
+                        aria-disabled={paginationState.currentPage === paginationState.totalPages}
+                        className={
+                          paginationState.currentPage === paginationState.totalPages
+                            ? "pointer-events-none opacity-45"
+                            : ""
+                        }
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
+              </div>
+            )}
           </section>
         </div>
       </div>

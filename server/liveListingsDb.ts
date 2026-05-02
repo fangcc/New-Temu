@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import { computeLiveListingMetrics } from "../shared/liveListingMath";
 import { liveProductListings, type InsertLiveProductListingRow } from "../drizzle/schema";
-import { getDb } from "./db";
+import { getDb, getProductRecordById } from "./db";
 
 export type LiveListing = {
   id: string;
@@ -236,4 +236,65 @@ export async function bulkImportLiveListings(rows: LiveListingInput[]): Promise<
     failed: errors.length,
     errors: errors.slice(0, 80),
   };
+}
+
+export async function upsertLiveListingFromProductRecord(options: {
+  productRecordId: string;
+  spuId: string;
+  declaredPrice?: string;
+  subsidySellingPrice?: string;
+}): Promise<LiveListing> {
+  const record = await getProductRecordById(options.productRecordId);
+  if (!record) {
+    throw new Error("上新记录不存在或已删除");
+  }
+
+  const spuId = toRowString(options.spuId);
+  if (!spuId) {
+    throw new Error("请填写 SPU");
+  }
+
+  let subsidySellingPrice = toRowString(options.subsidySellingPrice);
+  if (!subsidySellingPrice) {
+    subsidySellingPrice = toRowString(record.salePrice);
+  }
+  if (!subsidySellingPrice) {
+    throw new Error("请填写「运费补贴售价」，或先在上新记录中填写售价");
+  }
+
+  const noteBase = `从上新同步（${record.listingDate}）`;
+  const noteExtra = toRowString(record.note);
+  const note = noteExtra ? `${noteBase}。${noteExtra}` : noteBase;
+
+  const liveInput: LiveListingInput = {
+    spuId,
+    productName: record.productName,
+    supplier1688Url: toRowString(record.supplierUrl),
+    weight: toRowString(record.weight),
+    purchaseUnitPrice: toRowString(record.purchaseUnitPrice),
+    firstLegShippingFee: toRowString(record.firstLegShippingFee),
+    lastLegShippingFee: toRowString(record.lastLegShippingFee),
+    overseasWarehouseFee: toRowString(record.overseasWarehouseFee),
+    declaredPrice: toRowString(options.declaredPrice),
+    subsidySellingPrice,
+    sourceProductRecordId: record.id,
+    note,
+  };
+
+  const db = await getDb();
+  if (!db) {
+    throw new Error("数据库当前不可用，请稍后再试");
+  }
+
+  const existing = await db
+    .select({ id: liveProductListings.id })
+    .from(liveProductListings)
+    .where(eq(liveProductListings.spuId, spuId))
+    .limit(1);
+
+  if (existing[0]) {
+    return updateLiveListing(existing[0].id, liveInput);
+  }
+
+  return createLiveListing(liveInput);
 }

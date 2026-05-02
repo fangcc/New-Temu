@@ -154,6 +154,10 @@ export default function Home() {
   const [isProcessingImages, setIsProcessingImages] = useState(false);
   const [uploadFeedback, setUploadFeedback] = useState("");
   const [previewImage, setPreviewImage] = useState<PreviewImageState | null>(null);
+  const [syncTarget, setSyncTarget] = useState<ProductRecord | null>(null);
+  const [syncSpuId, setSyncSpuId] = useState("");
+  const [syncDeclaredPrice, setSyncDeclaredPrice] = useState("");
+  const [syncSubsidySellingPrice, setSyncSubsidySellingPrice] = useState("");
 
   const recordsQuery = trpc.productRecords.list.useQuery(undefined, {
     staleTime: 10_000,
@@ -186,6 +190,20 @@ export default function Home() {
     },
     onError: (error) => {
       toast.error(error.message || "删除失败，请稍后再试");
+    },
+  });
+
+  const syncToLiveMutation = trpc.liveListings.syncFromProductRecord.useMutation({
+    onSuccess: async () => {
+      await utils.liveListings.list.invalidate();
+      toast.success("已同步到在售产品（/live）");
+      setSyncTarget(null);
+      setSyncSpuId("");
+      setSyncDeclaredPrice("");
+      setSyncSubsidySellingPrice("");
+    },
+    onError: (error) => {
+      toast.error(error.message || "同步失败，请稍后再试");
     },
   });
 
@@ -406,6 +424,30 @@ export default function Home() {
     setSelectedRecordIds((prev) => prev.filter((item) => item !== id));
     if (editingId === id) resetForm();
     if (expandedRecordId === id) setExpandedRecordId(null);
+  };
+
+  const openSyncToLive = (record: ProductRecord) => {
+    setSyncTarget(record);
+    setSyncSpuId("");
+    setSyncDeclaredPrice("");
+    setSyncSubsidySellingPrice(record.salePrice.trim());
+  };
+
+  const handleSyncToLiveSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!syncTarget) {
+      return;
+    }
+    if (!syncSpuId.trim()) {
+      toast.error("请填写 SPU");
+      return;
+    }
+    void syncToLiveMutation.mutateAsync({
+      productRecordId: syncTarget.id,
+      spuId: syncSpuId.trim(),
+      declaredPrice: syncDeclaredPrice.trim(),
+      subsidySellingPrice: syncSubsidySellingPrice.trim(),
+    });
   };
 
   const toggleRecordSelection = (id: string) => {
@@ -920,6 +962,10 @@ export default function Home() {
                                         <Pencil className="h-4 w-4" />
                                         编辑
                                       </button>
+                                      <button type="button" onClick={() => openSyncToLive(record)} className={secondaryButtonClass}>
+                                        <Store className="h-4 w-4" />
+                                        同步到在售
+                                      </button>
                                       <button type="button" onClick={() => void handleDelete(record.id)} className={dangerButtonClass}>
                                         <Trash2 className="h-4 w-4" />
                                         删除
@@ -1177,6 +1223,83 @@ export default function Home() {
               <img src={previewImage.src} alt={previewImage.alt} className="max-h-[78vh] w-full object-contain" />
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(syncTarget)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSyncTarget(null);
+            setSyncSpuId("");
+            setSyncDeclaredPrice("");
+            setSyncSubsidySellingPrice("");
+          }
+        }}
+      >
+        <DialogContent className="max-w-md border-black/10 bg-[#faf8f4] text-slate-800">
+          <DialogTitle className="font-serif text-xl text-slate-900">同步到在售产品</DialogTitle>
+          <DialogDescription className="text-sm leading-6 text-slate-600">
+            核价通过后填写平台 <strong className="font-medium text-slate-800">SPU</strong> 即可一键写入在售表。成本与链接来自本条上新；「运费补贴售价」默认用上新里的售价，可按平台实际补贴价修改。若该 SPU
+            已存在则<strong className="font-medium text-slate-800">覆盖更新</strong>。
+          </DialogDescription>
+
+          {syncTarget ? (
+            <form className="mt-4 space-y-4" onSubmit={handleSyncToLiveSubmit}>
+              <p className="rounded-[1rem] border border-black/8 bg-white/80 px-3 py-2 text-sm text-slate-600">
+                当前：{syncTarget.productName}
+              </p>
+              <Field label="SPU" required>
+                <input
+                  value={syncSpuId}
+                  onChange={(e) => setSyncSpuId(e.target.value)}
+                  placeholder="例如 8005934020"
+                  className={inputClass}
+                  autoComplete="off"
+                />
+              </Field>
+              <Field label="申报核价（元）">
+                <input
+                  inputMode="decimal"
+                  value={syncDeclaredPrice}
+                  onChange={(e) => setSyncDeclaredPrice(e.target.value)}
+                  placeholder="可选，与核价表一致时填写"
+                  className={inputClass}
+                />
+              </Field>
+              <Field label="运费补贴售价（元）">
+                <input
+                  inputMode="decimal"
+                  value={syncSubsidySellingPrice}
+                  onChange={(e) => setSyncSubsidySellingPrice(e.target.value)}
+                  placeholder="默认使用上新中的售价"
+                  className={inputClass}
+                />
+              </Field>
+              <div className="flex flex-wrap gap-2 pt-2">
+                <button type="submit" disabled={syncToLiveMutation.isPending} className={primaryButtonClass}>
+                  {syncToLiveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Store className="h-4 w-4" />}
+                  确认同步
+                </button>
+                <button
+                  type="button"
+                  disabled={syncToLiveMutation.isPending}
+                  className={secondaryButtonClass}
+                  onClick={() => {
+                    setSyncTarget(null);
+                    setSyncSpuId("");
+                    setSyncDeclaredPrice("");
+                    setSyncSubsidySellingPrice("");
+                  }}
+                >
+                  取消
+                </button>
+                <Link href="/live" className={secondaryButtonClass}>
+                  打开在售页
+                </Link>
+              </div>
+            </form>
+          ) : null}
         </DialogContent>
       </Dialog>
     </div>

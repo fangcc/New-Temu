@@ -6,6 +6,7 @@ import {
   deleteLiveListing,
   listLiveListings,
   updateLiveListing,
+  upsertLiveListingFromProductRecord,
 } from "./liveListingsDb";
 import { clearAuthCookies } from "./_core/authCookies";
 import { systemRouter } from "./_core/systemRouter";
@@ -113,6 +114,18 @@ export const appRouter = router({
       )
       .mutation(async ({ input }) => {
         return bulkImportLiveListings(input.rows);
+      }),
+    syncFromProductRecord: protectedProcedure
+      .input(
+        z.object({
+          productRecordId: z.string().min(1, "缺少上新记录 ID"),
+          spuId: z.string().min(1, "请填写 SPU"),
+          declaredPrice: z.string().optional().default(""),
+          subsidySellingPrice: z.string().optional().default(""),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        return upsertLiveListingFromProductRecord(input);
       }),
   }),
 });

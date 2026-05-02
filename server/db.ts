@@ -262,6 +262,16 @@ export async function listProductRecords() {
   return rows.map(toSerializableRecord);
 }
 
+export async function getProductRecordById(id: string): Promise<ProductRecord | undefined> {
+  const db = await getDb();
+  if (!db) {
+    return undefined;
+  }
+
+  const row = await db.select().from(productRecords).where(eq(productRecords.id, id)).limit(1);
+  return row[0] ? toSerializableRecord(row[0]) : undefined;
+}
+
 export async function createProductRecord(input: ProductRecordInput) {
   const db = await getDb();
   if (!db) {

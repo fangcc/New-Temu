@@ -35,6 +35,9 @@ export function buildRecordCodeMap(records: ProductRecordForCode[]) {
 
 export const RECORDS_PER_PAGE = 5;
 
+/** 在售 SPU 列表每页条数（可与上新记录分开配置） */
+export const LIVE_LISTINGS_RECORDS_PER_PAGE = 10;
+
 export function getSafePage(totalItems: number, pageSize: number, requestedPage: number) {
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
   return Math.min(Math.max(1, requestedPage), totalPages);
