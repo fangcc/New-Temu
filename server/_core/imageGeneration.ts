@@ -35,10 +35,14 @@ export async function generateImage(
   options: GenerateImageOptions
 ): Promise<GenerateImageResponse> {
   if (!ENV.forgeApiUrl) {
-    throw new Error("BUILT_IN_FORGE_API_URL is not configured");
+    throw new Error(
+      "Image generation is not configured: set BUILT_IN_FORGE_API_URL and BUILT_IN_FORGE_API_KEY (Manus ImageService). Product image uploads can use S3 without these keys.",
+    );
   }
   if (!ENV.forgeApiKey) {
-    throw new Error("BUILT_IN_FORGE_API_KEY is not configured");
+    throw new Error(
+      "Image generation is not configured: set BUILT_IN_FORGE_API_URL and BUILT_IN_FORGE_API_KEY (Manus ImageService). Product image uploads can use S3 without these keys.",
+    );
   }
 
   // Build the full URL by appending the service path to the base URL
