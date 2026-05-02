@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import * as XLSX from "xlsx";
-import { ExternalLink, FileSpreadsheet, LayoutList, Loader2, Pencil, Plus, Search, Store, Trash2, Weight } from "lucide-react";
+import { Download, ExternalLink, FileSpreadsheet, LayoutList, Loader2, Pencil, Plus, Search, Store, Trash2, Weight } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "wouter";
 import { inverseDeclaredPriceForTargetMargin, simulateActivityPricing } from "@shared/liveListingActivitySim";
@@ -85,6 +85,19 @@ function currency(value: number) {
 function parsePercent(s: string) {
   const n = Number(String(s).trim());
   return Number.isFinite(n) ? n : 0;
+}
+
+function downloadTextFile(filename: string, text: string) {
+  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.rel = "noopener";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
 function parseWorkbookToImportRows(buf: ArrayBuffer): {
@@ -335,6 +348,19 @@ export default function LiveListings() {
   const busy = createMutation.isPending || updateMutation.isPending;
   const importBusy = bulkImportMutation.isPending;
 
+  const handleExportFilteredSpuDeclared = () => {
+    const rows = filteredRows.filter((r) => r.spuId.trim() && r.declaredPrice.trim());
+    if (rows.length === 0) {
+      toast.error("当前筛选结果中没有可导出的记录（需同时有 SPU 与申报核价）");
+      return;
+    }
+    const spuLine = rows.map((r) => r.spuId.trim()).join(" ");
+    const declaredLine = rows.map((r) => r.declaredPrice.trim()).join(" ");
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadTextFile(`在售筛选-SPU与申报核价-${stamp}.txt`, `${spuLine}\n${declaredLine}\n`);
+    toast.success(`已导出 ${rows.length} 条（TXT 两行：SPU 空格分隔 / 申报核价空格分隔）`);
+  };
+
   const handleExcelSelected = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -548,7 +574,8 @@ export default function LiveListings() {
               <p className="mt-1 leading-6 text-slate-600">
                 规则：活动后申报核价 = 申报核价 × 折扣系数；活动后补贴售价 = 活动后申报核价 + 加价；活动后毛利 = 活动后补贴售价 −
                 总成本；活动后利润率 = 活动后毛利 ÷ 活动后补贴售价。用于判断能否报名某类折扣（可自行改折扣与加价，如尾程按 21 / 28
-                等）。
+                等）。填写「反推目标利润率」后，表格会给出在该活动规则下、要达到该利润率时**申报核价应为多少（元）**（按每条 SKU
+                的总成本单独计算）。
               </p>
               <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <Field label="折扣系数（申报核价×）" required>
@@ -577,7 +604,7 @@ export default function LiveListings() {
                     inputMode="decimal"
                     value={actInverseMargin}
                     onChange={(e) => setActInverseMargin(e.target.value)}
-                    placeholder="如 10，显示达标申报核价"
+                    placeholder="如 10，表格列显示对应申报核价(元)"
                     className={inputClass}
                   />
                 </Field>
@@ -585,6 +612,15 @@ export default function LiveListings() {
               {(!activityParams.rOk || !activityParams.fOk) && (
                 <p className="mt-2 text-xs text-amber-800">折扣需在 0～1 之间，加价需为数字；当前将按默认 0.6 与 21 参与计算展示。</p>
               )}
+              <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-black/10 pt-4">
+                <button type="button" onClick={handleExportFilteredSpuDeclared} className={secondaryButtonClass}>
+                  <Download className="h-4 w-4" />
+                  导出当前筛选（SPU + 申报核价）
+                </button>
+                <span className="text-xs leading-5 text-slate-500">
+                  生成 UTF-8 文本：第 1 行为所有 SPU（空格隔开），第 2 行为对应申报核价（空格隔开，顺序与第 1 行一致）。
+                </span>
+              </div>
             </div>
 
             <div className="overflow-x-auto rounded-[1.5rem] border border-black/6 bg-white shadow-[0_18px_50px_rgba(38,30,24,0.06)]">
@@ -603,7 +639,7 @@ export default function LiveListings() {
                     <th className="px-3 py-3">活动毛利</th>
                     <th className="px-3 py-3">活动利润率</th>
                     {activityParams.showInverseCol ? (
-                      <th className="px-3 py-3">达标申报({activityParams.inversePct}%)</th>
+                      <th className="px-3 py-3">申报核价(元·目标{activityParams.inversePct}%)</th>
                     ) : null}
                     <th className="px-3 py-3">1688</th>
                     <th className="px-3 py-3 text-right">操作</th>
@@ -645,11 +681,6 @@ export default function LiveListings() {
                             targetMarginPercent: activityParams.inversePct,
                           })
                         : null;
-                      const curDeclared = Number(String(row.declaredPrice ?? "").trim());
-                      const meetsDeclared =
-                        needDeclared !== null &&
-                        Number.isFinite(curDeclared) &&
-                        curDeclared + 1e-6 >= needDeclared;
 
                       return (
                         <tr key={row.id} className="border-b border-black/5 hover:bg-[#fcfbf8]">
@@ -675,19 +706,8 @@ export default function LiveListings() {
                             {sim ? `${sim.marginPercent}%` : "—"}
                           </td>
                           {activityParams.showInverseCol ? (
-                            <td className="max-w-[9rem] px-3 py-3 text-slate-700">
-                              {needDeclared === null ? (
-                                "—"
-                              ) : (
-                                <span className="flex flex-col gap-0.5">
-                                  <span>{currency(needDeclared)}</span>
-                                  {meetsDeclared ? (
-                                    <span className="text-[0.65rem] font-medium text-[#50604f]">当前申报已≥达标</span>
-                                  ) : (
-                                    <span className="text-[0.65rem] text-amber-800">当前申报偏低</span>
-                                  )}
-                                </span>
-                              )}
+                            <td className="whitespace-nowrap px-3 py-3 text-slate-800">
+                              {needDeclared === null ? "—" : currency(needDeclared)}
                             </td>
                           ) : null}
                           <td className="px-3 py-3">
