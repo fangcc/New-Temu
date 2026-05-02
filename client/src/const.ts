@@ -7,14 +7,12 @@ export const getLoginUrl = () => {
   const redirectUri = `${window.location.origin}/api/oauth/callback`;
   const state = btoa(redirectUri);
 
-  if (!oauthPortalUrl || typeof oauthPortalUrl !== "string") {
-    throw new Error(
-      "Missing VITE_OAUTH_PORTAL_URL. Set it in your deployment environment variables and redeploy.",
-    );
+  if (!oauthPortalUrl || typeof oauthPortalUrl !== "string" || oauthPortalUrl.trim().length === 0) {
+    return "/login";
   }
 
-  if (!appId || typeof appId !== "string") {
-    throw new Error("Missing VITE_APP_ID. Set it in your deployment environment variables and redeploy.");
+  if (!appId || typeof appId !== "string" || appId.trim().length === 0) {
+    return "/login";
   }
 
   const portalBase = oauthPortalUrl.replace(/\/+$/, "");

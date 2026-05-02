@@ -6,6 +6,7 @@ import type { Request } from "express";
 import { SignJWT, jwtVerify } from "jose";
 import type { User } from "../../drizzle/schema";
 import * as db from "../db";
+import { LOCAL_SESSION_COOKIE_NAME } from "./authCookies";
 import { ENV } from "./env";
 import type {
   ExchangeTokenRequest,
@@ -23,6 +24,8 @@ export type SessionPayload = {
   appId: string;
   name: string;
 };
+
+const LOCAL_AUTH_ISSUER = "local-auth";
 
 const EXCHANGE_TOKEN_PATH = `/webdev.v1.WebDevAuthPublicService/ExchangeToken`;
 const GET_USER_INFO_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfo`;
@@ -232,6 +235,53 @@ class SDKServer {
     }
   }
 
+  async verifyLocalSession(
+    cookieValue: string | undefined | null
+  ): Promise<{ openId: string; name: string; email: string | null } | null> {
+    if (!cookieValue) {
+      return null;
+    }
+
+    try {
+      const secretKey = this.getSessionSecret();
+      const { payload } = await jwtVerify(cookieValue, secretKey, {
+        algorithms: ["HS256"],
+        issuer: LOCAL_AUTH_ISSUER,
+      });
+
+      const { openId, name, email } = payload as Record<string, unknown>;
+
+      if (!isNonEmptyString(openId) || !isNonEmptyString(name)) {
+        return null;
+      }
+
+      return {
+        openId,
+        name,
+        email: typeof email === "string" ? email : null,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  async signLocalSessionToken(openId: string, name: string, email: string | null, expiresInMs?: number) {
+    const issuedAt = Date.now();
+    const expiresIn = expiresInMs ?? ONE_YEAR_MS;
+    const expirationSeconds = Math.floor((issuedAt + expiresIn) / 1000);
+    const secretKey = this.getSessionSecret();
+
+    return new SignJWT({
+      openId,
+      name,
+      email: email ?? "",
+    })
+      .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+      .setIssuer(LOCAL_AUTH_ISSUER)
+      .setExpirationTime(expirationSeconds)
+      .sign(secretKey);
+  }
+
   async getUserInfoWithJwt(
     jwtToken: string
   ): Promise<GetUserInfoWithJwtResponse> {
@@ -257,8 +307,37 @@ class SDKServer {
   }
 
   async authenticateRequest(req: Request): Promise<User> {
-    // Regular authentication flow
     const cookies = this.parseCookies(req.headers.cookie);
+    const signedInAt = new Date();
+
+    const localCookie = cookies.get(LOCAL_SESSION_COOKIE_NAME);
+    const localSession = await this.verifyLocalSession(localCookie);
+    if (localSession) {
+      let user = await db.getUserByOpenId(localSession.openId);
+      if (!user) {
+        await db.upsertUser({
+          openId: localSession.openId,
+          name: localSession.name || null,
+          email: localSession.email,
+          loginMethod: "local",
+          lastSignedIn: signedInAt,
+        });
+        user = await db.getUserByOpenId(localSession.openId);
+      }
+
+      if (!user) {
+        throw ForbiddenError("User not found");
+      }
+
+      await db.upsertUser({
+        openId: user.openId,
+        lastSignedIn: signedInAt,
+      });
+
+      return user;
+    }
+
+    // Regular authentication flow
     const sessionCookie = cookies.get(COOKIE_NAME);
     const session = await this.verifySession(sessionCookie);
 
@@ -267,7 +346,6 @@ class SDKServer {
     }
 
     const sessionUserId = session.openId;
-    const signedInAt = new Date();
     let user = await db.getUserByOpenId(sessionUserId);
 
     // If user not in DB, sync from OAuth server automatically

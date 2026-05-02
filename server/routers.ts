@@ -1,8 +1,7 @@
 import { z } from "zod";
-import { COOKIE_NAME } from "../shared/const";
 import { buildTemuEnglishTitlePrompt, buildTemuMainImagePrompt } from "../shared/productAi";
 import { createProductRecord, deleteProductRecord, listProductRecords, updateProductRecord } from "./db";
-import { getSessionCookieOptions } from "./_core/cookies";
+import { clearAuthCookies } from "./_core/authCookies";
 import { invokeLLM } from "./_core/llm";
 import { generateImage } from "./_core/imageGeneration";
 import { systemRouter } from "./_core/systemRouter";
@@ -73,8 +72,7 @@ export const appRouter = router({
   auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
-      const cookieOptions = getSessionCookieOptions(ctx.req);
-      ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      clearAuthCookies(ctx.req, ctx.res);
       return {
         success: true,
       } as const;
