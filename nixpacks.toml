@@ -1,0 +1,21 @@
+[variables]
+NODE_ENV = "production"
+
+[phases.setup]
+cmds = [
+  "corepack enable",
+]
+
+[phases.install]
+cmds = [
+  "pnpm install --frozen-lockfile",
+]
+
+[phases.build]
+cmds = [
+  "pnpm run build",
+]
+
+[start]
+cmd = "pnpm run start"
+
