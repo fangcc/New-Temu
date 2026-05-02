@@ -1,13 +1,5 @@
 import type { CookieOptions, Request } from "express";
 
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
-
-function isIpAddress(host: string) {
-  // Basic IPv4 check and IPv6 presence detection.
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return true;
-  return host.includes(":");
-}
-
 function isSecureRequest(req: Request) {
   if (req.protocol === "https") return true;
 
@@ -39,10 +31,18 @@ export function getSessionCookieOptions(
   //       ? hostname
   //       : undefined;
 
+  const secure = isSecureRequest(req);
+  const isProduction = process.env.NODE_ENV === "production";
+
+  // `SameSite=None` requires `Secure=true` in modern browsers. On HTTPS deployments
+  // (Railway/Render/etc.) we want `Secure` cookies, and `Lax` is enough for same-site
+  // frontend + API on the same origin.
+  //
+  // For local HTTP dev, keep `Lax` + `Secure=false` so cookies still work.
   return {
     httpOnly: true,
     path: "/",
-    sameSite: "none",
-    secure: isSecureRequest(req),
+    sameSite: "lax",
+    secure: isProduction ? true : secure,
   };
 }
