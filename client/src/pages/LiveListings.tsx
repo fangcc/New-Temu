@@ -1,6 +1,19 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import * as XLSX from "xlsx";
-import { Download, ExternalLink, FileSpreadsheet, LayoutList, Loader2, Pencil, Plus, Search, Store, Trash2, Weight } from "lucide-react";
+import {
+  Download,
+  ExternalLink,
+  FileSpreadsheet,
+  LayoutList,
+  Loader2,
+  PackagePlus,
+  Pencil,
+  Plus,
+  Search,
+  Store,
+  Trash2,
+  Weight,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "wouter";
 import { inverseActivityDeclaredForTargetMargin, simulateActivityPricing } from "@shared/liveListingActivitySim";
@@ -22,9 +35,11 @@ import {
   PaginationPrevious,
 } from "@/components/ui/pagination";
 import { trpc } from "@/lib/trpc";
+import { useSelectedShop } from "@/lib/useSelectedShop";
 
 type LiveListing = {
   id: string;
+  shopId: string;
   spuId: string;
   productName: string;
   supplier1688Url: string;
@@ -123,6 +138,25 @@ function parseWorkbookToImportRows(buf: ArrayBuffer): {
 
 export default function LiveListings() {
   const utils = trpc.useUtils();
+  const { shopId, setShopId, shops, ready: shopReady, shopsQuery } = useSelectedShop();
+
+  const createShopMutation = trpc.shops.create.useMutation({
+    onSuccess: async (shop) => {
+      await utils.shops.list.invalidate();
+      setShopId(shop.id);
+      toast.success(`已切换到「${shop.name}」`);
+    },
+    onError: (e) => toast.error(e.message || "创建失败"),
+  });
+
+  const handleCreateShop = () => {
+    const name = window.prompt("请输入新店铺名称（例如：Temu 美区一号店）");
+    if (!name?.trim()) {
+      return;
+    }
+    void createShopMutation.mutateAsync({ name: name.trim() });
+  };
+
   const excelInputRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState<LiveForm>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -137,7 +171,10 @@ export default function LiveListings() {
   /** 反推：达到该目标活动后利润率（%）所需的「活动申报」折后价，留空不显示列 */
   const [actInverseMargin, setActInverseMargin] = useState("");
 
-  const listQuery = trpc.liveListings.list.useQuery(undefined, { staleTime: 10_000 });
+  const listQuery = trpc.liveListings.list.useQuery(
+    { shopId },
+    { staleTime: 10_000, enabled: shopReady },
+  );
 
   const createMutation = trpc.liveListings.create.useMutation({
     onSuccess: async () => {
@@ -192,6 +229,12 @@ export default function LiveListings() {
       toast.error(listQuery.error.message || "加载失败");
     }
   }, [listQuery.error]);
+
+  useEffect(() => {
+    if (shopsQuery.error) {
+      toast.error(shopsQuery.error.message || "店铺列表加载失败");
+    }
+  }, [shopsQuery.error]);
 
   const records = listQuery.data ?? [];
   const preview = useMemo(
@@ -306,6 +349,7 @@ export default function LiveListings() {
       return;
     }
     const payload = {
+      shopId,
       spuId: form.spuId.trim(),
       productName: form.productName.trim(),
       supplier1688Url: form.supplier1688Url.trim(),
@@ -388,6 +432,10 @@ export default function LiveListings() {
     if (!file) {
       return;
     }
+    if (!shopReady) {
+      toast.error("请先等待店铺加载完成后再导入");
+      return;
+    }
     const lower = file.name.toLowerCase();
     if (!lower.endsWith(".xlsx") && !lower.endsWith(".xls")) {
       toast.error("请上传 .xlsx 或 .xls 文件");
@@ -408,7 +456,7 @@ export default function LiveListings() {
       if (!ok) {
         return;
       }
-      await bulkImportMutation.mutateAsync({ rows });
+      await bulkImportMutation.mutateAsync({ shopId, rows });
     } catch (error) {
       const message = error instanceof Error ? error.message : "解析失败";
       toast.error(message);
@@ -418,21 +466,53 @@ export default function LiveListings() {
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#f5f1ea_0%,#f7f4ef_24%,#efebe5_100%)] text-slate-800">
       <div className="relative mx-auto max-w-[1400px] px-4 py-6 lg:px-8">
-        <header className="mb-8 flex flex-wrap items-start justify-between gap-4 border-b border-black/8 pb-6">
-          <div>
-            <p className="text-xs uppercase tracking-[0.28em] text-[#687267]">Live SKUs</p>
-            <h1 className="mt-2 font-serif text-3xl text-slate-900">在售产品（SPU）</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-600">
-              以 SPU 为唯一键，记录核价通过后的成本与「运费补贴售价」。总成本、毛利、利润率与表格一致：毛利 ÷
-              补贴售价。可不关联上新记录，便于录入店铺已有商品。支持上传与「美区TEMU核价表」相同表头的 Excel，批量新增或按 SPU
-              覆盖更新。
-            </p>
+        <header className="mb-8 flex flex-col gap-4 border-b border-black/8 pb-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-xs uppercase tracking-[0.28em] text-[#687267]">Live SKUs</p>
+              <h1 className="mt-2 font-serif text-3xl text-slate-900">在售产品（SPU）</h1>
+              <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-600">
+                按店铺隔离数据：同一 SPU 可在不同店铺各有一条在售记录。总成本、毛利、利润率与表格一致。支持上传与「美区TEMU核价表」相同表头的
+                Excel，批量导入到当前所选店铺。
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Link href="/" className={secondaryButtonClass}>
+                <LayoutList className="h-4 w-4" />
+                上新记录台
+              </Link>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Link href="/" className={secondaryButtonClass}>
-              <LayoutList className="h-4 w-4" />
-              上新记录台
-            </Link>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-[1.5rem] border border-black/6 bg-white/85 px-4 py-3 shadow-[0_8px_24px_rgba(30,23,15,0.04)]">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-xs uppercase tracking-[0.2em] text-slate-500">当前店铺</span>
+              {shopsQuery.isLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+              ) : shops.length === 0 ? (
+                <span className="text-sm text-amber-800">暂无店铺，请先迁移数据库或在上新页新建店铺。</span>
+              ) : (
+                <select
+                  value={shopId}
+                  onChange={(e) => setShopId(e.target.value)}
+                  className="min-w-[12rem] rounded-full border border-black/10 bg-[#fbfaf7] px-4 py-2 text-sm text-slate-800 outline-none focus:border-[#798a79]"
+                >
+                  {shops.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={handleCreateShop}
+              disabled={createShopMutation.isPending || shopsQuery.isLoading}
+              className={secondaryButtonClass + " disabled:cursor-not-allowed disabled:opacity-50"}
+            >
+              {createShopMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackagePlus className="h-4 w-4" />}
+              新建店铺
+            </button>
           </div>
         </header>
 
@@ -580,7 +660,7 @@ export default function LiveListings() {
                 />
                 <button
                   type="button"
-                  disabled={importBusy}
+                  disabled={importBusy || !shopReady}
                   onClick={() => excelInputRef.current?.click()}
                   className={secondaryButtonClass}
                 >

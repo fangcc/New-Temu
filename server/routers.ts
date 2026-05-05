@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { createProductRecord, deleteProductRecord, listProductRecords, updateProductRecord } from "./db";
+import { createShop, listShops } from "./shopsDb";
 import {
   bulkImportLiveListings,
   createLiveListing,
@@ -31,7 +32,12 @@ const productRecordInputSchema = z.object({
   images: z.array(z.string()).max(4, "最多上传 4 张图片").optional().default([]),
 });
 
-const liveListingInputSchema = z.object({
+const shopIdSchema = z.object({
+  shopId: z.string().min(1, "请选择店铺"),
+});
+
+/** Excel 等批量导入的单行（不含店铺，导入时统一写入当前店铺）。 */
+const liveListingRowSchema = z.object({
   spuId: z.string().min(1, "请填写 SPU"),
   productName: z.string().min(1, "请填写产品名称"),
   supplier1688Url: z.string().optional().default(""),
@@ -46,6 +52,14 @@ const liveListingInputSchema = z.object({
   note: z.string().optional().default(""),
 });
 
+const liveListingInputSchema = liveListingRowSchema.extend({
+  shopId: z.string().min(1, "请选择店铺"),
+});
+
+const productRecordCreateSchema = productRecordInputSchema.extend({
+  shopId: z.string().min(1, "请选择店铺"),
+});
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -57,12 +71,23 @@ export const appRouter = router({
       } as const;
     }),
   }),
-  productRecords: router({
+  shops: router({
     list: protectedProcedure.query(async () => {
-      return listProductRecords();
+      return listShops();
     }),
-    create: protectedProcedure.input(productRecordInputSchema).mutation(async ({ input }) => {
-      return createProductRecord(input);
+    create: protectedProcedure
+      .input(z.object({ name: z.string().min(1, "请填写店铺名称").max(128) }))
+      .mutation(async ({ input }) => {
+        return createShop(input.name);
+      }),
+  }),
+  productRecords: router({
+    list: protectedProcedure.input(shopIdSchema).query(async ({ input }) => {
+      return listProductRecords(input.shopId);
+    }),
+    create: protectedProcedure.input(productRecordCreateSchema).mutation(async ({ input }) => {
+      const { shopId, ...rest } = input;
+      return createProductRecord({ ...rest, shopId });
     }),
     update: protectedProcedure
       .input(
@@ -85,8 +110,8 @@ export const appRouter = router({
       }),
   }),
   liveListings: router({
-    list: protectedProcedure.query(async () => {
-      return listLiveListings();
+    list: protectedProcedure.input(shopIdSchema).query(async ({ input }) => {
+      return listLiveListings(input.shopId);
     }),
     create: protectedProcedure.input(liveListingInputSchema).mutation(async ({ input }) => {
       return createLiveListing(input);
@@ -109,11 +134,12 @@ export const appRouter = router({
     bulkImport: protectedProcedure
       .input(
         z.object({
-          rows: z.array(liveListingInputSchema).max(5000),
+          shopId: z.string().min(1, "请选择店铺"),
+          rows: z.array(liveListingRowSchema).max(5000),
         }),
       )
       .mutation(async ({ input }) => {
-        return bulkImportLiveListings(input.rows);
+        return bulkImportLiveListings(input.shopId, input.rows);
       }),
     syncFromProductRecord: protectedProcedure
       .input(

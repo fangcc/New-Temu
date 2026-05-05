@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { index, int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -22,8 +22,19 @@ export const users = mysqlTable("users", {
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
 });
 
-export const productRecords = mysqlTable("product_records", {
+/** 店铺：上新记录与在售 SPU 均归属同一店铺，不同店铺数据隔离。 */
+export const shops = mysqlTable("shops", {
   id: varchar("id", { length: 64 }).primaryKey(),
+  name: varchar("name", { length: 128 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const productRecords = mysqlTable(
+  "product_records",
+  {
+    id: varchar("id", { length: 64 }).primaryKey(),
+    shopId: varchar("shopId", { length: 64 }).notNull().default("default-shop"),
   productName: varchar("productName", { length: 255 }).notNull(),
   sourceCollectionUrl: text("sourceCollectionUrl").notNull(),
   supplierUrl: text("supplierUrl").notNull(),
@@ -45,12 +56,19 @@ export const productRecords = mysqlTable("product_records", {
   imageUrlsJson: text("imageUrlsJson").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+  },
+  (table) => ({
+    shopIdx: index("product_records_shop_idx").on(table.shopId),
+  }),
+);
 
-/** 已通过核价、按 SPU 唯一管理的在售台账（与「上新记录」分离）。 */
-export const liveProductListings = mysqlTable("live_product_listings", {
-  id: varchar("id", { length: 64 }).primaryKey(),
-  spuId: varchar("spuId", { length: 64 }).notNull().unique(),
+/** 已通过核价、按店铺 + SPU 唯一管理的在售台账（与「上新记录」分离）。 */
+export const liveProductListings = mysqlTable(
+  "live_product_listings",
+  {
+    id: varchar("id", { length: 64 }).primaryKey(),
+    shopId: varchar("shopId", { length: 64 }).notNull().default("default-shop"),
+    spuId: varchar("spuId", { length: 64 }).notNull(),
   productName: varchar("productName", { length: 255 }).notNull(),
   supplier1688Url: text("supplier1688Url").notNull(),
   weight: varchar("weight", { length: 32 }).default("").notNull(),
@@ -67,11 +85,17 @@ export const liveProductListings = mysqlTable("live_product_listings", {
   note: text("note").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+  },
+  (table) => ({
+    shopSpuUnique: uniqueIndex("live_product_listings_shop_spu_unique").on(table.shopId, table.spuId),
+  }),
+);
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type ProductRecordRow = typeof productRecords.$inferSelect;
 export type InsertProductRecordRow = typeof productRecords.$inferInsert;
+export type ShopRow = typeof shops.$inferSelect;
+export type InsertShopRow = typeof shops.$inferInsert;
 export type LiveProductListingRow = typeof liveProductListings.$inferSelect;
 export type InsertLiveProductListingRow = typeof liveProductListings.$inferInsert;
