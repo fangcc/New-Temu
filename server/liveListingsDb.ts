@@ -6,7 +6,6 @@ import { getDb, getProductRecordById } from "./db";
 
 export type LiveListing = {
   id: string;
-  shopId: string;
   spuId: string;
   productName: string;
   supplier1688Url: string;
@@ -27,7 +26,6 @@ export type LiveListing = {
 };
 
 export type LiveListingInput = {
-  shopId?: string;
   spuId: string;
   productName: string;
   supplier1688Url?: string;
@@ -42,9 +40,6 @@ export type LiveListingInput = {
   note?: string;
 };
 
-/** 批量导入行（无 shopId，由导入接口统一指定店铺）。 */
-export type LiveListingBulkRow = Omit<LiveListingInput, "shopId">;
-
 function toRowString(value: string | undefined) {
   return (value ?? "").trim();
 }
@@ -52,7 +47,6 @@ function toRowString(value: string | undefined) {
 function toSerializable(row: typeof liveProductListings.$inferSelect): LiveListing {
   return {
     id: row.id,
-    shopId: row.shopId,
     spuId: row.spuId,
     productName: row.productName,
     supplier1688Url: row.supplier1688Url,
@@ -73,7 +67,7 @@ function toSerializable(row: typeof liveProductListings.$inferSelect): LiveListi
   };
 }
 
-function buildRowValues(input: LiveListingInput, id: string, shopId: string): InsertLiveProductListingRow {
+function buildRowValues(input: LiveListingInput, id: string): InsertLiveProductListingRow {
   const purchaseUnitPrice = toRowString(input.purchaseUnitPrice);
   const firstLegShippingFee = toRowString(input.firstLegShippingFee);
   const lastLegShippingFee = toRowString(input.lastLegShippingFee);
@@ -89,7 +83,6 @@ function buildRowValues(input: LiveListingInput, id: string, shopId: string): In
 
   return {
     id,
-    shopId,
     spuId: toRowString(input.spuId),
     productName: toRowString(input.productName),
     supplier1688Url: toRowString(input.supplier1688Url),
@@ -108,22 +101,13 @@ function buildRowValues(input: LiveListingInput, id: string, shopId: string): In
   };
 }
 
-export async function listLiveListings(shopId: string) {
+export async function listLiveListings() {
   const db = await getDb();
   if (!db) {
     throw new Error("数据库当前不可用，请稍后再试");
   }
 
-  const sid = shopId.trim();
-  if (!sid) {
-    throw new Error("请选择店铺");
-  }
-
-  const rows = await db
-    .select()
-    .from(liveProductListings)
-    .where(eq(liveProductListings.shopId, sid))
-    .orderBy(desc(liveProductListings.updatedAt));
+  const rows = await db.select().from(liveProductListings).orderBy(desc(liveProductListings.updatedAt));
   return rows.map(toSerializable);
 }
 
@@ -133,23 +117,14 @@ export async function createLiveListing(input: LiveListingInput) {
     throw new Error("数据库当前不可用，请稍后再试");
   }
 
-  const shopId = toRowString(input.shopId);
-  if (!shopId) {
-    throw new Error("请选择店铺");
-  }
-
   const spuId = toRowString(input.spuId);
-  const dup = await db
-    .select({ id: liveProductListings.id })
-    .from(liveProductListings)
-    .where(and(eq(liveProductListings.shopId, shopId), eq(liveProductListings.spuId, spuId)))
-    .limit(1);
+  const dup = await db.select({ id: liveProductListings.id }).from(liveProductListings).where(eq(liveProductListings.spuId, spuId)).limit(1);
   if (dup[0]) {
-    throw new Error("该 SPU 在当前店铺已在售表中存在，请勿重复添加");
+    throw new Error("该 SPU 已在售表中存在，请勿重复添加");
   }
 
   const id = crypto.randomUUID();
-  const values = buildRowValues({ ...input, spuId }, id, shopId);
+  const values = buildRowValues({ ...input, spuId }, id);
   await db.insert(liveProductListings).values(values);
 
   const row = await db.select().from(liveProductListings).where(eq(liveProductListings.id, id)).limit(1);
@@ -170,24 +145,17 @@ export async function updateLiveListing(id: string, input: LiveListingInput) {
     throw new Error("记录不存在或已被删除");
   }
 
-  const existingShopId = existingRows[0].shopId;
   const spuId = toRowString(input.spuId);
   const conflict = await db
     .select({ id: liveProductListings.id })
     .from(liveProductListings)
-    .where(
-      and(
-        eq(liveProductListings.shopId, existingShopId),
-        eq(liveProductListings.spuId, spuId),
-        ne(liveProductListings.id, id),
-      ),
-    )
+    .where(and(eq(liveProductListings.spuId, spuId), ne(liveProductListings.id, id)))
     .limit(1);
   if (conflict[0]) {
-    throw new Error("该 SPU 已被当前店铺下其他在售记录占用");
+    throw new Error("该 SPU 已被其他在售记录占用");
   }
 
-  const values = buildRowValues({ ...input, spuId }, id, existingShopId);
+  const values = buildRowValues({ ...input, spuId }, id);
   await db.update(liveProductListings).set(values).where(eq(liveProductListings.id, id));
 
   const row = await db.select().from(liveProductListings).where(eq(liveProductListings.id, id)).limit(1);
@@ -212,10 +180,7 @@ export async function deleteLiveListing(id: string) {
   return { success: true } as const;
 }
 
-export async function bulkImportLiveListings(
-  shopId: string,
-  rows: LiveListingBulkRow[],
-): Promise<{
+export async function bulkImportLiveListings(rows: LiveListingInput[]): Promise<{
   created: number;
   updated: number;
   failed: number;
@@ -226,11 +191,6 @@ export async function bulkImportLiveListings(
     throw new Error("数据库当前不可用，请稍后再试");
   }
 
-  const sid = shopId.trim();
-  if (!sid) {
-    throw new Error("请选择店铺");
-  }
-
   const lastBySpu = new Map<string, LiveListingInput>();
   for (const r of rows) {
     const spuId = toRowString(r.spuId);
@@ -238,7 +198,7 @@ export async function bulkImportLiveListings(
     if (!spuId || !productName) {
       continue;
     }
-    lastBySpu.set(spuId, { ...r, shopId: sid, spuId, productName });
+    lastBySpu.set(spuId, { ...r, spuId, productName });
   }
 
   const list = Array.from(lastBySpu.values());
@@ -247,10 +207,7 @@ export async function bulkImportLiveListings(
   }
 
   const spuIds = list.map((r) => r.spuId);
-  const existingRows = await db
-    .select()
-    .from(liveProductListings)
-    .where(and(eq(liveProductListings.shopId, sid), inArray(liveProductListings.spuId, spuIds)));
+  const existingRows = await db.select().from(liveProductListings).where(inArray(liveProductListings.spuId, spuIds));
   const idBySpu = new Map(existingRows.map((row) => [row.spuId, row.id]));
 
   let created = 0;
@@ -310,7 +267,6 @@ export async function upsertLiveListingFromProductRecord(options: {
   const note = noteExtra ? `${noteBase}。${noteExtra}` : noteBase;
 
   const liveInput: LiveListingInput = {
-    shopId: record.shopId,
     spuId,
     productName: record.productName,
     supplier1688Url: toRowString(record.supplierUrl),
@@ -333,7 +289,7 @@ export async function upsertLiveListingFromProductRecord(options: {
   const existing = await db
     .select({ id: liveProductListings.id })
     .from(liveProductListings)
-    .where(and(eq(liveProductListings.shopId, record.shopId), eq(liveProductListings.spuId, spuId)))
+    .where(eq(liveProductListings.spuId, spuId))
     .limit(1);
 
   if (existing[0]) {

@@ -51,7 +51,6 @@ import {
 } from "@/lib/productImages";
 import { exportProductRecordsToWorkbook } from "@/lib/productExport";
 import { trpc } from "@/lib/trpc";
-import { useSelectedShop } from "@/lib/useSelectedShop";
 import {
   buildProductCostFields,
   getProductCostKeywordParts,
@@ -69,7 +68,6 @@ import type { ProductExportRecord } from "@shared/productAi";
 
 type ProductRecord = {
   id: string;
-  shopId: string;
   productName: string;
   sourceCollectionUrl: string;
   supplierUrl: string;
@@ -146,25 +144,6 @@ function currency(value: number) {
 
 export default function Home() {
   const utils = trpc.useUtils();
-  const { shopId, setShopId, shops, ready: shopReady, shopsQuery } = useSelectedShop();
-
-  const createShopMutation = trpc.shops.create.useMutation({
-    onSuccess: async (shop) => {
-      await utils.shops.list.invalidate();
-      setShopId(shop.id);
-      toast.success(`已切换到「${shop.name}」`);
-    },
-    onError: (e) => toast.error(e.message || "创建失败"),
-  });
-
-  const handleCreateShop = () => {
-    const name = window.prompt("请输入新店铺名称（例如：Temu 美区一号店）");
-    if (!name?.trim()) {
-      return;
-    }
-    void createShopMutation.mutateAsync({ name: name.trim() });
-  };
-
   const [form, setForm] = useState<ProductForm>(initialForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedRecordId, setExpandedRecordId] = useState<string | null>(null);
@@ -180,13 +159,9 @@ export default function Home() {
   const [syncDeclaredPrice, setSyncDeclaredPrice] = useState("");
   const [syncSubsidySellingPrice, setSyncSubsidySellingPrice] = useState("");
 
-  const recordsQuery = trpc.productRecords.list.useQuery(
-    { shopId },
-    {
-      staleTime: 10_000,
-      enabled: shopReady,
-    },
-  );
+  const recordsQuery = trpc.productRecords.list.useQuery(undefined, {
+    staleTime: 10_000,
+  });
 
   const createMutation = trpc.productRecords.create.useMutation({
     onSuccess: async () => {
@@ -237,12 +212,6 @@ export default function Home() {
       toast.error(recordsQuery.error.message || "记录加载失败，请稍后刷新重试");
     }
   }, [recordsQuery.error]);
-
-  useEffect(() => {
-    if (shopsQuery.error) {
-      toast.error(shopsQuery.error.message || "店铺列表加载失败");
-    }
-  }, [shopsQuery.error]);
 
   const records = recordsQuery.data ?? [];
   const selectedRecordSet = new Set(selectedRecordIds);
@@ -427,7 +396,7 @@ export default function Home() {
     if (editingId) {
       await updateMutation.mutateAsync({ id: editingId, data: payload });
     } else {
-      await createMutation.mutateAsync({ ...payload, shopId });
+      await createMutation.mutateAsync(payload);
     }
 
     resetForm();
@@ -534,7 +503,7 @@ export default function Home() {
               <p className="text-[0.7rem] uppercase tracking-[0.35em] text-stone-400">Product Desk</p>
               <h1 className="mt-4 font-serif text-[2rem] leading-none text-stone-50">上新记录台</h1>
               <p className="mt-3 text-sm leading-6 text-stone-400">
-                为日常上新、核价追踪和产品备注准备的轻量工作台。顶部先选「当前店铺」，不同店铺的上新与在售数据相互隔离。
+                为日常上新、核价追踪和产品备注准备的轻量工作台。尽量弱化登录感知，打开同一网址即可查看同一份记录。
               </p>
               <Link
                 href="/live"
@@ -580,38 +549,6 @@ export default function Home() {
         </aside>
 
         <main className="flex-1 space-y-5">
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-[1.75rem] border border-black/6 bg-white/80 px-4 py-3 shadow-[0_8px_24px_rgba(30,23,15,0.04)]">
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="text-xs uppercase tracking-[0.2em] text-slate-500">当前店铺</span>
-              {shopsQuery.isLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
-              ) : shops.length === 0 ? (
-                <span className="text-sm text-amber-800">暂无店铺。请先执行数据库迁移，或点击下方「新建店铺」。</span>
-              ) : (
-                <select
-                  value={shopId}
-                  onChange={(e) => setShopId(e.target.value)}
-                  className="min-w-[12rem] rounded-full border border-black/10 bg-[#fbfaf7] px-4 py-2 text-sm text-slate-800 outline-none focus:border-[#798a79]"
-                >
-                  {shops.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={handleCreateShop}
-              disabled={createShopMutation.isPending || shopsQuery.isLoading}
-              className={secondaryButtonClass + " disabled:cursor-not-allowed disabled:opacity-50"}
-            >
-              {createShopMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackagePlus className="h-4 w-4" />}
-              新建店铺
-            </button>
-          </div>
-
           <motion.section
             initial={{ opacity: 0, y: 18 }}
             animate={{ opacity: 1, y: 0 }}
