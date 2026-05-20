@@ -32,6 +32,8 @@ export const productRecords = mysqlTable(
   {
     id: varchar("id", { length: 64 }).primaryKey(),
     shopId: varchar("shopId", { length: 64 }).notNull().default("default-shop"),
+    /** general=普货，special=特货；决定套用 shops.costRulesJson 中哪套运费公式 */
+    cargoType: varchar("cargoType", { length: 16 }).notNull().default("general"),
     productName: varchar("productName", { length: 255 }).notNull(),
     sourceCollectionUrl: text("sourceCollectionUrl").notNull(),
     supplierUrl: text("supplierUrl").notNull(),

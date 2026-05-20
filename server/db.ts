@@ -5,6 +5,7 @@ import { buildProductCostFields } from "../shared/productCosting";
 import { productRecords, type InsertProductRecordRow, type InsertUser, users } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import { getShopCostRules } from "./shopsDb";
+import { normalizeCargoType, resolveCostRules } from "../shared/shopCostRules";
 import { storagePut } from "./storage";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -12,6 +13,7 @@ let _db: ReturnType<typeof drizzle> | null = null;
 export type ProductRecord = {
   id: string;
   shopId: string;
+  cargoType: string;
   productName: string;
   sourceCollectionUrl: string;
   supplierUrl: string;
@@ -53,6 +55,7 @@ export type ProductRecordInput = {
   note?: string;
   images?: string[];
   shopId?: string;
+  cargoType?: string;
 };
 
 export async function getDb() {
@@ -160,6 +163,7 @@ function toSerializableRecord(row: typeof productRecords.$inferSelect): ProductR
   return {
     id: row.id,
     shopId: row.shopId,
+    cargoType: normalizeCargoType(row.cargoType),
     productName: row.productName,
     sourceCollectionUrl: row.sourceCollectionUrl,
     supplierUrl: row.supplierUrl,
@@ -232,18 +236,20 @@ async function buildRecordValues(
 ): Promise<InsertProductRecordRow> {
   const purchaseUnitPrice = (input.purchaseUnitPrice ?? input.costPrice ?? "").trim();
   const weight = (input.weight ?? "").trim();
-  const rules = await getShopCostRules(shopId);
+  const cargoType = normalizeCargoType(input.cargoType);
+  const rulesConfig = await getShopCostRules(shopId);
   const costFields = buildProductCostFields(
     {
       purchaseUnitPrice,
       weight,
     },
-    rules,
+    resolveCostRules(rulesConfig, cargoType),
   );
 
   return {
     id,
     shopId,
+    cargoType,
     productName: input.productName.trim(),
     sourceCollectionUrl: input.sourceCollectionUrl.trim(),
     supplierUrl: input.supplierUrl.trim(),

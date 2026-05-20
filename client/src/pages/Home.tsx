@@ -55,7 +55,15 @@ import { ShopToolbar } from "@/components/ShopToolbar";
 import { trpc } from "@/lib/trpc";
 import { useSelectedShop } from "@/lib/useSelectedShop";
 import { buildProductCostFields, getProductCostKeywordParts } from "@shared/productCosting";
-import { DEFAULT_SHOP_COST_RULES, describeShopCostRules } from "@shared/shopCostRules";
+import {
+  CARGO_TYPE_OPTIONS,
+  cargoTypeLabel,
+  DEFAULT_SHOP_COST_RULES_CONFIG,
+  describeShopCostRuleSet,
+  normalizeCargoType,
+  resolveCostRules,
+  type CargoType,
+} from "@shared/shopCostRules";
 import {
   buildRecordCodeMap,
   formatRecordCodeDate,
@@ -69,6 +77,7 @@ import type { ProductExportRecord } from "@shared/productAi";
 type ProductRecord = {
   id: string;
   shopId: string;
+  cargoType: string;
   productName: string;
   sourceCollectionUrl: string;
   supplierUrl: string;
@@ -100,6 +109,7 @@ type ProductForm = {
   purchaseUnitPrice: string;
   salePrice: string;
   weight: string;
+  cargoType: CargoType;
   note: string;
   images: string[];
 };
@@ -124,6 +134,7 @@ const initialForm: ProductForm = {
   purchaseUnitPrice: "",
   salePrice: "",
   weight: "",
+  cargoType: "general",
   note: "",
   images: [],
 };
@@ -188,7 +199,11 @@ export default function Home() {
     { shopId },
     { staleTime: 60_000, enabled: shopReady },
   );
-  const shopCostRules = costRulesQuery.data ?? DEFAULT_SHOP_COST_RULES;
+  const shopCostRulesConfig = costRulesQuery.data ?? DEFAULT_SHOP_COST_RULES_CONFIG;
+  const activeCostRules = useMemo(
+    () => resolveCostRules(shopCostRulesConfig, form.cargoType),
+    [shopCostRulesConfig, form.cargoType],
+  );
   const currentShopName = shops.find((s) => s.id === shopId)?.name ?? "当前店铺";
 
   const createMutation = trpc.productRecords.create.useMutation({
@@ -328,9 +343,9 @@ export default function Home() {
           purchaseUnitPrice: form.purchaseUnitPrice,
           weight: form.weight,
         },
-        shopCostRules,
+        activeCostRules,
       ),
-    [form.purchaseUnitPrice, form.weight, shopCostRules],
+    [form.purchaseUnitPrice, form.weight, activeCostRules],
   );
   const remainingImageSlots = Math.max(0, MAX_PRODUCT_IMAGE_COUNT - form.images.length);
   const isSubmitting = createMutation.isPending || updateMutation.isPending;
@@ -420,6 +435,7 @@ export default function Home() {
       purchaseUnitPrice: form.purchaseUnitPrice.trim(),
       salePrice: form.salePrice.trim(),
       weight: form.weight.trim(),
+      cargoType: form.cargoType,
       mainSellingPoints: baseline?.mainSellingPoints ?? "",
       coreSellingPoint: baseline?.coreSellingPoint ?? "",
       targetAudience: baseline?.targetAudience ?? "",
@@ -450,6 +466,7 @@ export default function Home() {
       purchaseUnitPrice: record.purchaseUnitPrice,
       salePrice: record.salePrice,
       weight: record.weight,
+      cargoType: normalizeCargoType(record.cargoType),
       note: record.note,
       images: record.images,
     });
@@ -732,7 +749,22 @@ export default function Home() {
                   </Field>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+                  <Field label="货类">
+                    <select
+                      value={form.cargoType}
+                      onChange={(e) =>
+                        setForm((prev) => ({ ...prev, cargoType: normalizeCargoType(e.target.value) }))
+                      }
+                      className={inputClass}
+                    >
+                      {CARGO_TYPE_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
                   <Field label="重量（g）" icon={<Weight className="h-4 w-4" />}>
                     <input
                       inputMode="decimal"
@@ -756,7 +788,7 @@ export default function Home() {
                 <div className="rounded-[1.25rem] border border-[#d8ddd3] bg-[#f4f1eb] px-4 py-4 text-sm text-slate-600">
                   <p className="font-medium text-slate-700">当前自动核算总成本：{currency(Number(costPreview.totalCostPrice || 0))}</p>
                   <p className="mt-2 leading-6">
-                    {describeShopCostRules(shopCostRules)}。可在上方「运费公式」为本店单独调整。
+                    当前货类「{cargoTypeLabel(form.cargoType)}」：{describeShopCostRuleSet(activeCostRules)}。可在上方「运费公式」分别设置普货/特货。
                   </p>
                 </div>
 
@@ -978,7 +1010,12 @@ export default function Home() {
                                 {recordCode}
                               </div>
                               <div className="min-w-0 max-w-full overflow-hidden">
-                                <p className="truncate font-serif text-xl text-slate-900 sm:text-2xl">{record.productName}</p>
+                                <p className="truncate font-serif text-xl text-slate-900 sm:text-2xl">
+                                  {record.productName}
+                                  <span className="ml-2 inline-block rounded-full bg-[#dfe7de] px-2 py-0.5 align-middle font-sans text-xs text-[#50604f]">
+                                    {cargoTypeLabel(record.cargoType)}
+                                  </span>
+                                </p>
                                 <p className="mt-1 text-sm text-slate-500">点击展开查看完整记录</p>
                               </div>
                             </div>

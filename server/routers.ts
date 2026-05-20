@@ -26,6 +26,7 @@ const productRecordInputSchema = z.object({
   costPrice: z.string().optional().default(""),
   salePrice: z.string().optional().default(""),
   weight: z.string().optional().default(""),
+  cargoType: z.enum(["general", "special"]).optional().default("general"),
   mainSellingPoints: z.string().optional().default(""),
   coreSellingPoint: z.string().optional().default(""),
   targetAudience: z.string().optional().default(""),

@@ -3,10 +3,11 @@ import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { shops } from "../drizzle/schema";
 import {
-  DEFAULT_SHOP_COST_RULES,
+  cloneRulesConfig,
+  DEFAULT_SHOP_COST_RULES_CONFIG,
   parseShopCostRules,
   serializeShopCostRules,
-  type ShopCostRules,
+  type ShopCostRulesConfig,
 } from "../shared/shopCostRules";
 import { getDb } from "./db";
 
@@ -23,7 +24,7 @@ const lastLegTierSchema = z.object({
   fee: z.number().finite().min(0),
 });
 
-export const shopCostRulesInputSchema = z.object({
+const shopCostRuleSetSchema = z.object({
   firstLeg: z.object({
     type: z.literal("per_kg"),
     ratePerKg: z.number().finite().positive("头程单价须大于 0"),
@@ -38,25 +39,32 @@ export const shopCostRulesInputSchema = z.object({
   }),
 });
 
-function toSerializable(row: typeof shops.$inferSelect): Shop {
-  return {
-    id: row.id,
-    name: row.name,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-  };
+export const shopCostRulesInputSchema = z.object({
+  general: shopCostRuleSetSchema,
+  special: shopCostRuleSetSchema,
+});
+
+function validateTierRanges(config: ShopCostRulesConfig) {
+  for (const label of ["普货", "特货"] as const) {
+    const key = label === "普货" ? "general" : "special";
+    for (const tier of config[key].lastLeg.tiers) {
+      if (tier.minGrams > tier.maxGrams) {
+        throw new Error(`${label}尾程区间 ${tier.minGrams}–${tier.maxGrams}g 无效：最小重量不能大于最大重量`);
+      }
+    }
+  }
 }
 
-export async function getShopCostRules(shopId: string): Promise<ShopCostRules> {
+export async function getShopCostRules(shopId: string): Promise<ShopCostRulesConfig> {
   const db = await getDb();
   if (!db) {
-    return DEFAULT_SHOP_COST_RULES;
+    return cloneRulesConfig(DEFAULT_SHOP_COST_RULES_CONFIG);
   }
   const row = await db.select({ costRulesJson: shops.costRulesJson }).from(shops).where(eq(shops.id, shopId)).limit(1);
   return parseShopCostRules(row[0]?.costRulesJson ?? null);
 }
 
-export async function updateShopCostRules(shopId: string, rules: ShopCostRules): Promise<ShopCostRules> {
+export async function updateShopCostRules(shopId: string, rules: ShopCostRulesConfig): Promise<ShopCostRulesConfig> {
   const db = await getDb();
   if (!db) {
     throw new Error("数据库当前不可用，请稍后再试");
@@ -65,11 +73,7 @@ export async function updateShopCostRules(shopId: string, rules: ShopCostRules):
   if (!parsed.success) {
     throw new Error(parsed.error.issues[0]?.message ?? "运费规则无效");
   }
-  for (const tier of parsed.data.lastLeg.tiers) {
-    if (tier.minGrams > tier.maxGrams) {
-      throw new Error(`尾程区间 ${tier.minGrams}–${tier.maxGrams}g 无效：最小重量不能大于最大重量`);
-    }
-  }
+  validateTierRanges(parsed.data);
 
   await db
     .update(shops)
@@ -104,4 +108,13 @@ export async function createShop(name: string): Promise<Shop> {
     throw new Error("店铺创建成功但读取失败");
   }
   return toSerializable(row[0]);
+}
+
+function toSerializable(row: typeof shops.$inferSelect): Shop {
+  return {
+    id: row.id,
+    name: row.name,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
 }
