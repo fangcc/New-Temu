@@ -36,6 +36,13 @@
       "when": 1777000000000,
       "tag": "0004_live_product_listings",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1777800000000,
+      "tag": "0005_shops_and_shop_id",
+      "breakpoints": true
     }
   ]
 }

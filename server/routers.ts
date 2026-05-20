@@ -8,9 +8,14 @@ import {
   updateLiveListing,
   upsertLiveListingFromProductRecord,
 } from "./liveListingsDb";
+import { createShop, listShops } from "./shopsDb";
 import { clearAuthCookies } from "./_core/authCookies";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
+
+const shopIdSchema = z.object({
+  shopId: z.string().min(1, "请选择店铺"),
+});
 
 const productRecordInputSchema = z.object({
   productName: z.string().min(1, "请先填写产品名称"),
@@ -31,7 +36,11 @@ const productRecordInputSchema = z.object({
   images: z.array(z.string()).max(4, "最多上传 4 张图片").optional().default([]),
 });
 
-const liveListingInputSchema = z.object({
+const productRecordCreateSchema = productRecordInputSchema.extend({
+  shopId: z.string().min(1, "请选择店铺"),
+});
+
+const liveListingRowSchema = z.object({
   spuId: z.string().min(1, "请填写 SPU"),
   productName: z.string().min(1, "请填写产品名称"),
   supplier1688Url: z.string().optional().default(""),
@@ -46,23 +55,30 @@ const liveListingInputSchema = z.object({
   note: z.string().optional().default(""),
 });
 
+const liveListingInputSchema = liveListingRowSchema.extend({
+  shopId: z.string().min(1, "请选择店铺"),
+});
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
       clearAuthCookies(ctx.req, ctx.res);
-      return {
-        success: true,
-      } as const;
+      return { success: true } as const;
     }),
   }),
+  shops: router({
+    list: protectedProcedure.query(async () => listShops()),
+    create: protectedProcedure
+      .input(z.object({ name: z.string().min(1, "请填写店铺名称").max(128) }))
+      .mutation(async ({ input }) => createShop(input.name)),
+  }),
   productRecords: router({
-    list: protectedProcedure.query(async () => {
-      return listProductRecords();
-    }),
-    create: protectedProcedure.input(productRecordInputSchema).mutation(async ({ input }) => {
-      return createProductRecord(input);
+    list: protectedProcedure.input(shopIdSchema).query(async ({ input }) => listProductRecords(input.shopId)),
+    create: protectedProcedure.input(productRecordCreateSchema).mutation(async ({ input }) => {
+      const { shopId, ...rest } = input;
+      return createProductRecord({ ...rest, shopId });
     }),
     update: protectedProcedure
       .input(
@@ -71,26 +87,14 @@ export const appRouter = router({
           data: productRecordInputSchema,
         }),
       )
-      .mutation(async ({ input }) => {
-        return updateProductRecord(input.id, input.data);
-      }),
+      .mutation(async ({ input }) => updateProductRecord(input.id, input.data)),
     delete: protectedProcedure
-      .input(
-        z.object({
-          id: z.string().min(1, "缺少记录 ID"),
-        }),
-      )
-      .mutation(async ({ input }) => {
-        return deleteProductRecord(input.id);
-      }),
+      .input(z.object({ id: z.string().min(1, "缺少记录 ID") }))
+      .mutation(async ({ input }) => deleteProductRecord(input.id)),
   }),
   liveListings: router({
-    list: protectedProcedure.query(async () => {
-      return listLiveListings();
-    }),
-    create: protectedProcedure.input(liveListingInputSchema).mutation(async ({ input }) => {
-      return createLiveListing(input);
-    }),
+    list: protectedProcedure.input(shopIdSchema).query(async ({ input }) => listLiveListings(input.shopId)),
+    create: protectedProcedure.input(liveListingInputSchema).mutation(async ({ input }) => createLiveListing(input)),
     update: protectedProcedure
       .input(
         z.object({
@@ -98,23 +102,18 @@ export const appRouter = router({
           data: liveListingInputSchema,
         }),
       )
-      .mutation(async ({ input }) => {
-        return updateLiveListing(input.id, input.data);
-      }),
+      .mutation(async ({ input }) => updateLiveListing(input.id, input.data)),
     delete: protectedProcedure
       .input(z.object({ id: z.string().min(1, "缺少记录 ID") }))
-      .mutation(async ({ input }) => {
-        return deleteLiveListing(input.id);
-      }),
+      .mutation(async ({ input }) => deleteLiveListing(input.id)),
     bulkImport: protectedProcedure
       .input(
         z.object({
-          rows: z.array(liveListingInputSchema).max(5000),
+          shopId: z.string().min(1, "请选择店铺"),
+          rows: z.array(liveListingRowSchema).max(5000),
         }),
       )
-      .mutation(async ({ input }) => {
-        return bulkImportLiveListings(input.rows);
-      }),
+      .mutation(async ({ input }) => bulkImportLiveListings(input.shopId, input.rows)),
     syncFromProductRecord: protectedProcedure
       .input(
         z.object({
@@ -124,9 +123,7 @@ export const appRouter = router({
           subsidySellingPrice: z.string().optional().default(""),
         }),
       )
-      .mutation(async ({ input }) => {
-        return upsertLiveListingFromProductRecord(input);
-      }),
+      .mutation(async ({ input }) => upsertLiveListingFromProductRecord(input)),
   }),
 });
 

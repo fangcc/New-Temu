@@ -10,6 +10,7 @@ let _db: ReturnType<typeof drizzle> | null = null;
 
 export type ProductRecord = {
   id: string;
+  shopId: string;
   productName: string;
   sourceCollectionUrl: string;
   supplierUrl: string;
@@ -50,6 +51,7 @@ export type ProductRecordInput = {
   optimizedMainImageUrl?: string;
   note?: string;
   images?: string[];
+  shopId?: string;
 };
 
 export async function getDb() {
@@ -156,6 +158,7 @@ function toSerializableRecord(row: typeof productRecords.$inferSelect): ProductR
 
   return {
     id: row.id,
+    shopId: row.shopId,
     productName: row.productName,
     sourceCollectionUrl: row.sourceCollectionUrl,
     supplierUrl: row.supplierUrl,
@@ -220,7 +223,7 @@ async function normalizeIncomingImages(images: string[], recordId: string) {
   return uploaded;
 }
 
-function buildRecordValues(input: ProductRecordInput, images: string[], id: string): InsertProductRecordRow {
+function buildRecordValues(input: ProductRecordInput, images: string[], id: string, shopId: string): InsertProductRecordRow {
   const purchaseUnitPrice = (input.purchaseUnitPrice ?? input.costPrice ?? "").trim();
   const weight = (input.weight ?? "").trim();
   const costFields = buildProductCostFields({
@@ -230,6 +233,7 @@ function buildRecordValues(input: ProductRecordInput, images: string[], id: stri
 
   return {
     id,
+    shopId,
     productName: input.productName.trim(),
     sourceCollectionUrl: input.sourceCollectionUrl.trim(),
     supplierUrl: input.supplierUrl.trim(),
@@ -252,13 +256,22 @@ function buildRecordValues(input: ProductRecordInput, images: string[], id: stri
   };
 }
 
-export async function listProductRecords() {
+export async function listProductRecords(shopId: string) {
   const db = await getDb();
   if (!db) {
     throw new Error("数据库当前不可用，请稍后再试");
   }
 
-  const rows = await db.select().from(productRecords).orderBy(desc(productRecords.listingDate), desc(productRecords.createdAt));
+  const sid = shopId.trim();
+  if (!sid) {
+    throw new Error("请选择店铺");
+  }
+
+  const rows = await db
+    .select()
+    .from(productRecords)
+    .where(eq(productRecords.shopId, sid))
+    .orderBy(desc(productRecords.listingDate), desc(productRecords.createdAt));
   return rows.map(toSerializableRecord);
 }
 
@@ -278,9 +291,14 @@ export async function createProductRecord(input: ProductRecordInput) {
     throw new Error("数据库当前不可用，请稍后再试");
   }
 
+  const shopId = input.shopId?.trim() ?? "";
+  if (!shopId) {
+    throw new Error("请选择店铺");
+  }
+
   const id = crypto.randomUUID();
   const uploadedImages = await normalizeIncomingImages(input.images ?? [], id);
-  const values = buildRecordValues(input, uploadedImages, id);
+  const values = buildRecordValues(input, uploadedImages, id, shopId);
 
   await db.insert(productRecords).values(values);
 
@@ -306,7 +324,7 @@ export async function updateProductRecord(id: string, input: ProductRecordInput)
   }
 
   const uploadedImages = await normalizeIncomingImages(input.images ?? [], id);
-  const values = buildRecordValues(input, uploadedImages, id);
+  const values = buildRecordValues(input, uploadedImages, id, existing.shopId);
 
   await db.update(productRecords).set(values).where(eq(productRecords.id, id));
 
