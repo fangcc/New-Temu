@@ -4,6 +4,7 @@ import { drizzle } from "drizzle-orm/mysql2";
 import { buildProductCostFields } from "../shared/productCosting";
 import { productRecords, type InsertProductRecordRow, type InsertUser, users } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import { getShopCostRules } from "./shopsDb";
 import { storagePut } from "./storage";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -223,13 +224,22 @@ async function normalizeIncomingImages(images: string[], recordId: string) {
   return uploaded;
 }
 
-function buildRecordValues(input: ProductRecordInput, images: string[], id: string, shopId: string): InsertProductRecordRow {
+async function buildRecordValues(
+  input: ProductRecordInput,
+  images: string[],
+  id: string,
+  shopId: string,
+): Promise<InsertProductRecordRow> {
   const purchaseUnitPrice = (input.purchaseUnitPrice ?? input.costPrice ?? "").trim();
   const weight = (input.weight ?? "").trim();
-  const costFields = buildProductCostFields({
-    purchaseUnitPrice,
-    weight,
-  });
+  const rules = await getShopCostRules(shopId);
+  const costFields = buildProductCostFields(
+    {
+      purchaseUnitPrice,
+      weight,
+    },
+    rules,
+  );
 
   return {
     id,
@@ -298,7 +308,7 @@ export async function createProductRecord(input: ProductRecordInput) {
 
   const id = crypto.randomUUID();
   const uploadedImages = await normalizeIncomingImages(input.images ?? [], id);
-  const values = buildRecordValues(input, uploadedImages, id, shopId);
+  const values = await buildRecordValues(input, uploadedImages, id, shopId);
 
   await db.insert(productRecords).values(values);
 
@@ -324,7 +334,7 @@ export async function updateProductRecord(id: string, input: ProductRecordInput)
   }
 
   const uploadedImages = await normalizeIncomingImages(input.images ?? [], id);
-  const values = buildRecordValues(input, uploadedImages, id, existing.shopId);
+  const values = await buildRecordValues(input, uploadedImages, id, existing.shopId);
 
   await db.update(productRecords).set(values).where(eq(productRecords.id, id));
 

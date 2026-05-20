@@ -8,7 +8,7 @@ import {
   updateLiveListing,
   upsertLiveListingFromProductRecord,
 } from "./liveListingsDb";
-import { createShop, listShops } from "./shopsDb";
+import { createShop, getShopCostRules, listShops, shopCostRulesInputSchema, updateShopCostRules } from "./shopsDb";
 import { clearAuthCookies } from "./_core/authCookies";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
@@ -73,6 +73,10 @@ export const appRouter = router({
     create: protectedProcedure
       .input(z.object({ name: z.string().min(1, "请填写店铺名称").max(128) }))
       .mutation(async ({ input }) => createShop(input.name)),
+    getCostRules: protectedProcedure.input(shopIdSchema).query(async ({ input }) => getShopCostRules(input.shopId)),
+    updateCostRules: protectedProcedure
+      .input(z.object({ shopId: z.string().min(1), rules: shopCostRulesInputSchema }))
+      .mutation(async ({ input }) => updateShopCostRules(input.shopId, input.rules)),
   }),
   productRecords: router({
     list: protectedProcedure.input(shopIdSchema).query(async ({ input }) => listProductRecords(input.shopId)),

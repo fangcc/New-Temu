@@ -1,5 +1,7 @@
-const FIXED_OVERSEAS_WAREHOUSE_FEE = 4;
-const FIRST_LEG_RATE_PER_KG = 62;
+import {
+  DEFAULT_SHOP_COST_RULES,
+  type ShopCostRules,
+} from "./shopCostRules";
 
 function toNumber(value: string | number | null | undefined) {
   if (typeof value === "number") {
@@ -31,43 +33,48 @@ function formatMoney(value: number) {
   return roundToTwo(value).toFixed(2).replace(/\.00$/, "").replace(/(\.\d*[1-9])0$/, "$1");
 }
 
-export function calculateFirstLegShippingFee(weight: string | number) {
+export function calculateFirstLegShippingFee(
+  weight: string | number,
+  rules: ShopCostRules = DEFAULT_SHOP_COST_RULES,
+) {
   const grams = toNumber(weight);
   if (grams <= 0) {
     return 0;
   }
 
-  return roundToTwo((grams * FIRST_LEG_RATE_PER_KG) / 1000);
+  return roundToTwo((grams * rules.firstLeg.ratePerKg) / 1000);
 }
 
-export function calculateLastLegShippingFee(weight: string | number) {
+export function calculateLastLegShippingFee(
+  weight: string | number,
+  rules: ShopCostRules = DEFAULT_SHOP_COST_RULES,
+) {
   const grams = toNumber(weight);
 
-  if (grams >= 5 && grams <= 199) {
-    return 21;
-  }
-  if (grams >= 200 && grams <= 399) {
-    return 28;
-  }
-  if (grams >= 400 && grams <= 5000) {
-    return 33;
+  for (const tier of rules.lastLeg.tiers) {
+    if (grams >= tier.minGrams && grams <= tier.maxGrams) {
+      return tier.fee;
+    }
   }
 
   return 0;
 }
 
-export function calculateOverseasWarehouseFee() {
-  return FIXED_OVERSEAS_WAREHOUSE_FEE;
+export function calculateOverseasWarehouseFee(rules: ShopCostRules = DEFAULT_SHOP_COST_RULES) {
+  return rules.overseas.amount;
 }
 
-export function calculateProductCostBreakdown(input: {
-  purchaseUnitPrice?: string | number | null;
-  weight?: string | number | null;
-}) {
+export function calculateProductCostBreakdown(
+  input: {
+    purchaseUnitPrice?: string | number | null;
+    weight?: string | number | null;
+  },
+  rules: ShopCostRules = DEFAULT_SHOP_COST_RULES,
+) {
   const purchaseUnitPrice = toNumber(input.purchaseUnitPrice);
-  const firstLegShippingFee = calculateFirstLegShippingFee(input.weight ?? 0);
-  const lastLegShippingFee = calculateLastLegShippingFee(input.weight ?? 0);
-  const overseasWarehouseFee = calculateOverseasWarehouseFee();
+  const firstLegShippingFee = calculateFirstLegShippingFee(input.weight ?? 0, rules);
+  const lastLegShippingFee = calculateLastLegShippingFee(input.weight ?? 0, rules);
+  const overseasWarehouseFee = calculateOverseasWarehouseFee(rules);
   const totalCostPrice = roundToTwo(
     purchaseUnitPrice + firstLegShippingFee + lastLegShippingFee + overseasWarehouseFee,
   );
@@ -81,11 +88,14 @@ export function calculateProductCostBreakdown(input: {
   };
 }
 
-export function buildProductCostFields(input: {
-  purchaseUnitPrice?: string | number | null;
-  weight?: string | number | null;
-}) {
-  const breakdown = calculateProductCostBreakdown(input);
+export function buildProductCostFields(
+  input: {
+    purchaseUnitPrice?: string | number | null;
+    weight?: string | number | null;
+  },
+  rules: ShopCostRules = DEFAULT_SHOP_COST_RULES,
+) {
+  const breakdown = calculateProductCostBreakdown(input, rules);
 
   return {
     purchaseUnitPrice: formatMoney(breakdown.purchaseUnitPrice),
@@ -114,7 +124,8 @@ export function getProductCostKeywordParts(input: {
     .filter(Boolean);
 }
 
+/** @deprecated 使用当前店铺 rules；保留便于旧 UI 引用默认头程单价 */
 export const PRODUCT_COST_CONSTANTS = {
-  fixedOverseasWarehouseFee: FIXED_OVERSEAS_WAREHOUSE_FEE,
-  firstLegRatePerKg: FIRST_LEG_RATE_PER_KG,
+  fixedOverseasWarehouseFee: DEFAULT_SHOP_COST_RULES.overseas.amount,
+  firstLegRatePerKg: DEFAULT_SHOP_COST_RULES.firstLeg.ratePerKg,
 } as const;

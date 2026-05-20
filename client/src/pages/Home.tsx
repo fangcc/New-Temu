@@ -50,14 +50,12 @@ import {
   optimizeImageFile,
 } from "@/lib/productImages";
 import { exportProductRecordsToWorkbook } from "@/lib/productExport";
+import { ShopCostRulesPanel } from "@/components/ShopCostRulesPanel";
 import { ShopToolbar } from "@/components/ShopToolbar";
 import { trpc } from "@/lib/trpc";
 import { useSelectedShop } from "@/lib/useSelectedShop";
-import {
-  buildProductCostFields,
-  getProductCostKeywordParts,
-  PRODUCT_COST_CONSTANTS,
-} from "@shared/productCosting";
+import { buildProductCostFields, getProductCostKeywordParts } from "@shared/productCosting";
+import { DEFAULT_SHOP_COST_RULES, describeShopCostRules } from "@shared/shopCostRules";
 import {
   buildRecordCodeMap,
   formatRecordCodeDate,
@@ -185,6 +183,13 @@ export default function Home() {
     { shopId },
     { staleTime: 10_000, enabled: shopReady },
   );
+
+  const costRulesQuery = trpc.shops.getCostRules.useQuery(
+    { shopId },
+    { staleTime: 60_000, enabled: shopReady },
+  );
+  const shopCostRules = costRulesQuery.data ?? DEFAULT_SHOP_COST_RULES;
+  const currentShopName = shops.find((s) => s.id === shopId)?.name ?? "当前店铺";
 
   const createMutation = trpc.productRecords.create.useMutation({
     onSuccess: async () => {
@@ -318,11 +323,14 @@ export default function Home() {
   const recordCodeMap = useMemo(() => buildRecordCodeMap(records), [records]);
   const costPreview = useMemo(
     () =>
-      buildProductCostFields({
-        purchaseUnitPrice: form.purchaseUnitPrice,
-        weight: form.weight,
-      }),
-    [form.purchaseUnitPrice, form.weight],
+      buildProductCostFields(
+        {
+          purchaseUnitPrice: form.purchaseUnitPrice,
+          weight: form.weight,
+        },
+        shopCostRules,
+      ),
+    [form.purchaseUnitPrice, form.weight, shopCostRules],
   );
   const remainingImageSlots = Math.max(0, MAX_PRODUCT_IMAGE_COUNT - form.images.length);
   const isSubmitting = createMutation.isPending || updateMutation.isPending;
@@ -578,15 +586,24 @@ export default function Home() {
         </aside>
 
         <main className="flex-1 space-y-5">
-          <ShopToolbar
-            secondaryButtonClass={secondaryButtonClass}
-            shopId={shopId}
-            shops={shops}
-            shopsLoading={shopsQuery.isLoading}
-            onShopChange={setShopId}
-            onCreateShop={handleCreateShop}
-            createPending={createShopMutation.isPending}
-          />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <ShopToolbar
+              secondaryButtonClass={secondaryButtonClass}
+              shopId={shopId}
+              shops={shops}
+              shopsLoading={shopsQuery.isLoading}
+              onShopChange={setShopId}
+              onCreateShop={handleCreateShop}
+              createPending={createShopMutation.isPending}
+            />
+            <ShopCostRulesPanel
+              shopId={shopId}
+              shopName={currentShopName}
+              shopReady={shopReady}
+              secondaryButtonClass={secondaryButtonClass}
+              inputClass={inputClass}
+            />
+          </div>
 
           <motion.section
             initial={{ opacity: 0, y: 18 }}
@@ -739,7 +756,7 @@ export default function Home() {
                 <div className="rounded-[1.25rem] border border-[#d8ddd3] bg-[#f4f1eb] px-4 py-4 text-sm text-slate-600">
                   <p className="font-medium text-slate-700">当前自动核算总成本：{currency(Number(costPreview.totalCostPrice || 0))}</p>
                   <p className="mt-2 leading-6">
-                    头程按重量 × {PRODUCT_COST_CONSTANTS.firstLegRatePerKg} ÷ 1000 计算并四舍五入到两位小数；尾程按重量区间自动取值；海外仓操作费固定为 {PRODUCT_COST_CONSTANTS.fixedOverseasWarehouseFee} 元。
+                    {describeShopCostRules(shopCostRules)}。可在上方「运费公式」为本店单独调整。
                   </p>
                 </div>
 

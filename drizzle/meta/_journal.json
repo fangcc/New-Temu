@@ -43,6 +43,13 @@
       "when": 1777800000000,
       "tag": "0005_shops_and_shop_id",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1777900000000,
+      "tag": "0006_shop_cost_rules",
+      "breakpoints": true
     }
   ]
 }

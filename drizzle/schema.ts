@@ -21,6 +21,8 @@ export const users = mysqlTable("users", {
 export const shops = mysqlTable("shops", {
   id: varchar("id", { length: 64 }).primaryKey(),
   name: varchar("name", { length: 128 }).notNull(),
+  /** JSON：按店铺的头程/尾程/海外仓核算规则，见 shared/shopCostRules.ts */
+  costRulesJson: text("costRulesJson"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
